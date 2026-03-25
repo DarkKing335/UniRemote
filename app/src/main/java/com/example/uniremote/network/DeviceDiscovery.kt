@@ -36,7 +36,31 @@ class DeviceDiscovery(private val context: Context) {
         "_webostv._tcp"          to TvBrand.LG,
         "_androidtvremote._tcp"  to TvBrand.ANDROID,
         "_adb-tls-connect._tcp"  to TvBrand.ANDROID,
+        "_roku-epp._tcp"         to TvBrand.ROKU,
+        "_vizio._tcp"            to TvBrand.VIZIO,
+        "_panasonic-viera._tcp"  to TvBrand.PANASONIC,
+        "_googletv._tcp"         to TvBrand.ANDROID,
+        "_vidaa._tcp"            to TvBrand.HISENSE,
+        "_googlecast._tcp"       to TvBrand.ANDROID, // Support Android TV/Chromecast
+        "_airplay._tcp"          to TvBrand.UNKNOWN // AirPlay can be on many brands
     )
+
+    private fun detectBrand(serviceName: String, baseBrand: TvBrand): TvBrand {
+        val name = serviceName.uppercase()
+        return when {
+            name.contains("SONY") || name.contains("BRAVIA") -> TvBrand.SONY
+            name.contains("TCL") -> TvBrand.TCL
+            name.contains("XIAOMI") || name.contains("MI TV") -> TvBrand.XIAOMI
+            name.contains("HISENSE") || name.contains("VIDAA") -> TvBrand.HISENSE
+            name.contains("TOSHIBA") -> TvBrand.TOSHIBA
+            name.contains("SHARP") || name.contains("AQUOS") -> TvBrand.SHARP
+            name.contains("PHILIPS") -> TvBrand.PHILIPS
+            name.contains("SAMSUNG") -> TvBrand.SAMSUNG
+            name.contains("LG") || name.contains("WEBOS") -> TvBrand.LG
+            name.contains("PANASONIC") || name.contains("VIERA") -> TvBrand.PANASONIC
+            else -> baseBrand
+        }
+    }
 
     /**
      * Returns a cold Flow emitting the current discovered device list
@@ -79,18 +103,19 @@ class DeviceDiscovery(private val context: Context) {
                         override fun onServiceResolved(svcInfo: NsdServiceInfo) {
                             val ip   = svcInfo.host?.hostAddress ?: return
                             val port = if (svcInfo.port > 0) svcInfo.port else brand.defaultPort
-                            val name = svcInfo.serviceName ?: ip
+                            val name   = svcInfo.serviceName ?: ip
+                            val brandResolved = detectBrand(name, brand)
                             // ✅ Stable ID: prefer MAC (from NSD attributes if available), else hash
-                            val mac  = svcInfo.attributes["mac"]
+                            val mac    = svcInfo.attributes["mac"]
                                 ?.let { String(it) } ?: ""
-                            val id   = DeviceIdUtil.stableId(mac = mac, ip = ip, name = name)
+                            val id     = DeviceIdUtil.stableId(mac = mac, ip = ip, name = name)
                             val device = TvDevice(
-                                id   = id,
-                                name = name,
-                                brand = brand,
-                                ip   = ip,
-                                mac  = mac,
-                                port = port
+                                id    = id,
+                                name  = name,
+                                brand = brandResolved,
+                                ip    = ip,
+                                mac   = mac,
+                                port  = port
                                 // ssid intentionally NOT set here – Repository attaches it on save
                             )
                             discovered[id] = device
