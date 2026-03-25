@@ -26,6 +26,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.DeepBtnBg
 import com.example.uniremote.ui.theme.GlassBtnBg
 import com.example.uniremote.ui.theme.GlassBtnBorder
@@ -62,11 +63,7 @@ fun MouseCursorLayout() {
                 modifier = Modifier
                     .weight(1.2f)
                     .fillMaxHeight()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {}
-                    ),
+                    .remotePressable(shape = RoundedCornerShape(4.dp)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -115,7 +112,7 @@ fun MouseCursorLayout() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .clickable { },
+                        .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -140,7 +137,7 @@ fun MouseCursorLayout() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .clickable { },
+                        .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -159,11 +156,7 @@ fun MouseCursorLayout() {
 private fun NavIconBtn(icon: ImageVector, modifier: Modifier) {
     Box(
         modifier = modifier
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = {}
-            ),
+            .remotePressable(shape = RoundedCornerShape(4.dp)),
         contentAlignment = Alignment.Center
     ) {
         Icon(

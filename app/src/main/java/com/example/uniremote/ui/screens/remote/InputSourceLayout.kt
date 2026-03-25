@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.ui.components.remotePressable
 
 private data class InputSource(
     val name: String,
@@ -55,7 +56,7 @@ private fun InputSourceRow(source: InputSource) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { }
+            .remotePressable(shape = RoundedCornerShape(6.dp), raisedElevation = 6.dp, pressedElevation = 1.dp)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

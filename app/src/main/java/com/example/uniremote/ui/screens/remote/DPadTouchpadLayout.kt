@@ -27,6 +27,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.CyanText
 import com.example.uniremote.ui.theme.PowerGlow
 
@@ -67,7 +68,7 @@ fun DPadTouchpadLayout() {
                     .clip(CircleShape)
                     .background(PowerGlow.copy(alpha = 0.15f))
                     .border(1.dp, PowerGlow.copy(alpha = 0.35f), CircleShape)
-                    .clickable { },
+                    .remotePressable(shape = CircleShape, raisedElevation = 8.dp, pressedElevation = 1.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
