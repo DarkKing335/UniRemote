@@ -1,3 +1,70 @@
 <resources>
     <string name="app_name">UniRemote</string>
+    <string name="main_remote_title">DIGITAL PILOT</string>
+
+    <!-- Remote screen -->
+    <string name="connecting_overlay_message">Đang kết nối thiết bị…</string>
+
+    <!-- Keyboard layout -->
+    <string name="keyboard_send_error_message">Không thể gửi văn bản lúc này.\nThiết bị được kết nối không hiển thị màn hình nhập văn bản.</string>
+    <string name="ok">OK</string>
+    <string name="send">Gửi</string>
+    <string name="clear_text_content_description">Xóa nội dung</string>
+
+    <!-- Settings screen -->
+    <string name="settings_connected_device">THIẾT BỊ ĐÃ KẾT NỐI</string>
+    <string name="settings_online">TRỰC TUYẾN</string>
+    <string name="settings_standby">CHỜ</string>
+    <string name="settings_offline">NGOẠI TUYẾN</string>
+    <string name="settings_auto_reconnect_title">TỰ ĐỘNG KẾT NỐI LẠI</string>
+    <string name="settings_auto_reconnect_desc">Kết nối tự động khi khởi động ứng dụng</string>
+    <string name="settings_wol_hint">TV đang ở chế độ chờ. Gửi gói Wake-on-LAN để bật TV.</string>
+    <string name="settings_wol_waking">✓  ĐÃ GỬI MAGIC PACKET – TV ĐANG KHỞI ĐỘNG</string>
+    <string name="settings_wake_tv">BẬT TV</string>
+    <string name="settings_waking_up">ĐANG BẬT…</string>
+    <string name="settings_disconnect">Ngắt kết nối</string>
+    <string name="settings_recently_connected">MỚI KẾT NỐI GẦN ĐÂY</string>
+    <string name="settings_no_device">Chưa kết nối thiết bị nào</string>
+    <string name="settings_scan_label">QUÉT THIẾT BỊ MỚI</string>
+    <string name="settings_scanning_label">ĐANG QUÉT…</string>
+    <string name="settings_scan_hint">Nhấn để tìm kiếm thiết bị trong mạng</string>
+    <string name="settings_scanning_hint">ĐANG TÌM KIẾM THIẾT BỊ TRONG MẠNG CỤC BỘ…</string>
+    <string name="settings_discovered_devices">THIẾT BỊ TÌM THẤY</string>
+    <string name="settings_connecting">Đang kết nối…</string>
+    <string name="settings_no_recent">Chưa có thiết bị nào được kết nối</string>
+
+    <!-- Apps screen -->
+    <string name="apps_quick_launch_label">KHỞI CHẠY NHANH</string>
+    <string name="apps_installed_title">Ứng dụng đã cài</string>
+    <string name="apps_syncing">ĐỒNG BỘ</string>
+    <string name="apps_sync">ĐỒNG BỘ</string>
+    <string name="apps_no_apps">Không tìm thấy ứng dụng</string>
+    <string name="apps_sync_from_tv">Đồng bộ từ TV</string>
+    <string name="apps_not_connected">Chưa kết nối TV. Vào Cài đặt để kết nối.</string>
+
+    <!-- Cast screen -->
+    <string name="cast_start_mirroring">BẮT ĐẦU PHẢN CHIẾU</string>
+    <string name="cast_stop_mirroring">DỪNG PHẢN CHIẾU</string>
+    <string name="cast_streaming">ĐANG PHÁT</string>
+    <string name="cast_ready">SẴN SÀNG KẾT NỐI</string>
+    <string name="cast_wifi_hint">Đảm bảo cả hai thiết bị dùng cùng mạng Wi-Fi</string>
+
+    <!-- Macro Manager (Settings) -->
+    <string name="macro_section_label">MACRO TÙY CHỈNH</string>
+    <string name="macro_section_title">Quản lý Macro</string>
+    <string name="macro_add_button">+ Tạo Macro mới</string>
+    <string name="macro_empty">Chưa có macro nào. Nhấn nút trên để tạo.</string>
+    <string name="macro_dialog_title_new">Tạo Macro mới</string>
+    <string name="macro_dialog_title_edit">Chỉnh sửa Macro</string>
+    <string name="macro_name_hint">Tên macro (ví dụ: Movie Night)</string>
+    <string name="macro_desc_hint">Mô tả ngắn (tùy chọn)</string>
+    <string name="macro_icon_label">Chọn biểu tượng</string>
+    <string name="macro_keys_label">Chuỗi phím bấm</string>
+    <string name="macro_add_key">+ Thêm phím</string>
+    <string name="macro_save">Lưu</string>
+    <string name="macro_cancel">Hủy</string>
+    <string name="macro_delete">Xóa macro</string>
+    <string name="macro_run">Chạy</string>
+    <string name="macro_name_required">Vui lòng nhập tên macro</string>
+    <string name="macro_keys_required">Vui lòng thêm ít nhất một phím bấm</string>
 </resources>

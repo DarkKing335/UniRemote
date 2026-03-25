@@ -21,8 +21,8 @@ fun AppNavigation() {
 
     when (currentScreen) {
         NavigationTab.REMOTE   -> MainRemoteScreen(vm = vm, onNavigate = { currentScreen = it })
-        NavigationTab.APPS     -> AppsScreen(onNavigate = { currentScreen = it })
-        NavigationTab.CAST     -> CastScreen(onNavigate = { currentScreen = it })
-        NavigationTab.SETTINGS -> SettingsScreen(onNavigate = { currentScreen = it })
+        NavigationTab.APPS     -> AppsScreen(vm = vm, onNavigate = { currentScreen = it })
+        NavigationTab.CAST     -> CastScreen(vm = vm, onNavigate = { currentScreen = it })
+        NavigationTab.SETTINGS -> SettingsScreen(vm = vm, onNavigate = { currentScreen = it })
     }
 }

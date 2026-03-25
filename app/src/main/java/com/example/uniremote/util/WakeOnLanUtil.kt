@@ -1,4 +1,4 @@
-package com.example.uniremote.network
+package com.example.uniremote.util
 
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -43,12 +43,8 @@ object WakeOnLanUtil {
 
     private fun buildMagicPacket(macBytes: ByteArray): ByteArray {
         val packet = ByteArray(102)
-        // First 6 bytes: 0xFF
         repeat(6) { packet[it] = 0xFF.toByte() }
-        // Next 96 bytes: MAC repeated 16 times
-        repeat(16) { rep ->
-            macBytes.copyInto(packet, destinationOffset = 6 + rep * 6)
-        }
+        repeat(16) { rep -> macBytes.copyInto(packet, destinationOffset = 6 + rep * 6) }
         return packet
     }
 }

@@ -13,6 +13,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -24,9 +26,11 @@ fun Modifier.remotePressable(
     pressDepth: Dp = 2.2.dp,
     raisedElevation: Dp = 12.dp,
     pressedElevation: Dp = 4.dp,
+    hapticType: HapticFeedbackType = HapticFeedbackType.TextHandleMove,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val haptic = LocalHapticFeedback.current
 
     val yOffset by animateDpAsState(
         targetValue = if (isPressed) pressDepth else -lift,
@@ -56,6 +60,9 @@ fun Modifier.remotePressable(
         .clickable(
             interactionSource = interactionSource,
             indication = null,
-            onClick = onClick
+            onClick = {
+                haptic.performHapticFeedback(hapticType)
+                onClick()
+            }
         )
 }

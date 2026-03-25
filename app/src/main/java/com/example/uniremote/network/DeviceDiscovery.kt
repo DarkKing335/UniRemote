@@ -6,6 +6,7 @@ import android.net.nsd.NsdServiceInfo
 import android.util.Log
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
+import com.example.uniremote.util.DeviceIdUtil
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -20,8 +21,8 @@ private const val TAG = "DeviceDiscovery"
  *  - LG WebOS: _webostv._tcp
  *  - Android TV: _androidtvremote._tcp  and  _adb-tls-connect._tcp
  *
- * Usage:
- *   DeviceDiscovery(context).discover().collect { devices -> … }
+ * ✅ Uses DeviceIdUtil.stableId() for stable, MAC-preferred device IDs.
+ * ✅ Does NOT attach SSID – that is DeviceRepository's responsibility.
  */
 class DeviceDiscovery(private val context: Context) {
 
@@ -38,13 +39,14 @@ class DeviceDiscovery(private val context: Context) {
     )
 
     /**
-     * Returns a cold Flow that emits the current discovered device list
+     * Returns a cold Flow emitting the current discovered device list
      * whenever a new device is found or lost.
-     * Call [Flow.collect] to start discovery; cancel the coroutine to stop.
+     * Cancel the collecting coroutine to stop discovery cleanly.
      */
     fun discover(): Flow<List<TvDevice>> = callbackFlow {
-        val discovered = mutableMapOf<String, TvDevice>()
-        val listeners  = mutableListOf<NsdManager.DiscoveryListener>()
+        val discovered      = mutableMapOf<String, TvDevice>()
+        val listeners       = mutableListOf<NsdManager.DiscoveryListener>()
+        val startedListeners = mutableSetOf<NsdManager.DiscoveryListener>()
 
         fun emit() = trySend(discovered.values.toList())
 
@@ -58,12 +60,15 @@ class DeviceDiscovery(private val context: Context) {
                 }
                 override fun onDiscoveryStarted(type: String) {
                     Log.d(TAG, "Discovery started: $type")
+                    startedListeners.add(this)
                 }
                 override fun onDiscoveryStopped(type: String) {
                     Log.d(TAG, "Discovery stopped: $type")
+                    startedListeners.remove(this)
                 }
                 override fun onServiceLost(info: NsdServiceInfo) {
-                    discovered.remove(info.serviceName)
+                    // Remove by any matching IP (id not yet resolved)
+                    discovered.entries.removeIf { it.value.name == info.serviceName }
                     emit()
                 }
                 override fun onServiceFound(info: NsdServiceInfo) {
@@ -75,13 +80,18 @@ class DeviceDiscovery(private val context: Context) {
                             val ip   = svcInfo.host?.hostAddress ?: return
                             val port = if (svcInfo.port > 0) svcInfo.port else brand.defaultPort
                             val name = svcInfo.serviceName ?: ip
-                            val id   = "${brand.name}_$ip"
+                            // ✅ Stable ID: prefer MAC (from NSD attributes if available), else hash
+                            val mac  = svcInfo.attributes["mac"]
+                                ?.let { String(it) } ?: ""
+                            val id   = DeviceIdUtil.stableId(mac = mac, ip = ip, name = name)
                             val device = TvDevice(
-                                id    = id,
-                                name  = name,
+                                id   = id,
+                                name = name,
                                 brand = brand,
-                                ip    = ip,
-                                port  = port
+                                ip   = ip,
+                                mac  = mac,
+                                port = port
+                                // ssid intentionally NOT set here – Repository attaches it on save
                             )
                             discovered[id] = device
                             emit()
@@ -99,7 +109,14 @@ class DeviceDiscovery(private val context: Context) {
 
         awaitClose {
             listeners.forEach { listener ->
-                runCatching { nsdManager.stopServiceDiscovery(listener) }
+                if (!startedListeners.contains(listener)) return@forEach
+                try {
+                    nsdManager.stopServiceDiscovery(listener)
+                } catch (e: IllegalArgumentException) {
+                    Log.w(TAG, "Listener not registered or already stopped", e)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Unexpected error while stopping NSD", e)
+                }
             }
         }
     }
