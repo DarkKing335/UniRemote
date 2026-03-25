@@ -1,17 +1,21 @@
 package com.example.uniremote.viewmodel
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.util.Log
 import com.example.uniremote.data.AppPreferences
 import com.example.uniremote.data.DeviceRepository
-import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.data.UserMacro
-import com.example.uniremote.network.*
-import com.example.uniremote.util.WifiUtil
+import com.example.uniremote.network.DeviceDiscovery
+import com.example.uniremote.network.RemoteControllerFactory
+import com.example.uniremote.network.TvAppUiModel
+import com.example.uniremote.network.TvController
+import com.example.uniremote.network.TvKey
+import com.example.uniremote.network.toUiModel
 import com.example.uniremote.util.WakeOnLanUtil
+import com.example.uniremote.util.WifiUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -51,11 +55,21 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private val _connectedDevice = MutableStateFlow<TvDevice?>(null)
     val connectedDevice: StateFlow<TvDevice?> = _connectedDevice.asStateFlow()
 
+    /** Currently active devices in the multitasking bar. */
+    private val _activeDevices = MutableStateFlow<List<TvDevice>>(emptyList())
+    val activeDevices: StateFlow<List<TvDevice>> = _activeDevices.asStateFlow()
+
+    /** If true, all commands are sent to all active devices simultaneously. */
+    private val _isBroadcastMode = MutableStateFlow(false)
+    val isBroadcastMode: StateFlow<Boolean> = _isBroadcastMode.asStateFlow()
+
+    fun toggleBroadcastMode() { _isBroadcastMode.value = !_isBroadcastMode.value }
+
     /** All known (previously connected) devices from Room DB. */
     val knownDevices: StateFlow<List<TvDevice>> = repo.knownDevices
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    /** Current WiFi SSID displayed in SettingsScreen. */
+    /** Current Wi-Fi SSID displayed in SettingsScreen. */
     private val _currentSsid = MutableStateFlow<String?>(null)
     val currentSsid: StateFlow<String?> = _currentSsid.asStateFlow()
 
@@ -88,10 +102,16 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     val userMacros: StateFlow<List<UserMacro>> = prefs.userMacros
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val _lgPairingKey = MutableStateFlow<String?>(null)
 
     // Internal
-    private var controller: TvController? = null
+    private val controllers = mutableMapOf<String, TvController>() // DeviceID to Controller
+    private val controller: TvController?
+        get() {
+            val device = _connectedDevice.value ?: return null
+            return controllers[device.id]
+        }
+
+
     private var discoveryJob: Job? = null
     private var macroJob: Job? = null
 
@@ -111,11 +131,11 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     // ── Auto-Connect Logic ────────────────────────────────────────────────────
 
     /**
-     * Tries to connect to known devices matching the current WiFi SSID,
+     * Tries to connect to known devices matching the current Wi-Fi SSID,
      * sorted by most recently connected (lastConnectedMs DESC).
      *
      * For each candidate:
-     *  1. Try connect with [CONNECT_TIMEOUT_MS] ms timeout
+     *  1. Try to connect with [CONNECT_TIMEOUT_MS] ms timeout
      *  2. If fails → retry once before moving to next
      *  3. If all fail → show manual list (ConnectionStatus.Disconnected)
      */
@@ -158,9 +178,10 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     /** Internal: attempts connection, returns true on success. Non-throwing. */
     private suspend fun tryConnect(device: TvDevice): Boolean {
         return runCatching {
-            controller?.disconnect()
-            controller = buildController(device)
-            controller!!.connect()
+            controllers[device.id]?.disconnect()
+            val c = buildController(device)
+            controllers[device.id] = c
+            c.connect()
         }.getOrElse {
             Log.w(TAG, "tryConnect error: ${it.message}")
             false
@@ -173,12 +194,17 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             _connectionStatus.value = ConnectionStatus.Connecting
             _connectedDevice.value  = device
+            
+            if (!_activeDevices.value.any { it.id == device.id }) {
+                _activeDevices.value += device
+            }
 
-            controller?.disconnect()
-            controller = buildController(device)
+            controllers[device.id]?.disconnect()
+            val c = buildController(device)
+            controllers[device.id] = c
 
             val success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
-                runCatching { controller!!.connect() }.getOrElse { false }
+                runCatching { c.connect() }.getOrElse { false }
             } ?: false
 
             if (success) {
@@ -189,18 +215,34 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             } else {
                 _connectionStatus.value = ConnectionStatus.Error("Cannot reach ${device.name}. Check that the TV is on and reachable.")
                 repo.markDeviceOffline(device.id)
-                controller = null
+                controllers.remove(device.id)
             }
         }
     }
 
+    fun selectDevice(device: TvDevice) {
+        _connectedDevice.value = device
+        // Update connection status based on the selected device's controller
+        val isAlive = controllers[device.id]?.isConnected() ?: false
+        _connectionStatus.value = if (isAlive) ConnectionStatus.Connected else ConnectionStatus.Disconnected
+        loadInstalledApps()
+    }
+
     fun disconnect() {
         macroJob?.cancel(); macroJob = null
-        val id = _connectedDevice.value?.id
-        controller?.disconnect(); controller = null
-        _connectionStatus.value = ConnectionStatus.Disconnected
-        _connectedDevice.value  = null
-        id?.let { viewModelScope.launch { repo.markDeviceOffline(it) } }
+        val device = _connectedDevice.value ?: return
+        controllers[device.id]?.disconnect()
+        controllers.remove(device.id)
+        _activeDevices.value = _activeDevices.value.filter { it.id != device.id }
+        
+        if (_activeDevices.value.isNotEmpty()) {
+            selectDevice(_activeDevices.value.first())
+        } else {
+            _connectionStatus.value = ConnectionStatus.Disconnected
+            _connectedDevice.value  = null
+        }
+        
+        viewModelScope.launch { repo.markDeviceOffline(device.id) }
     }
 
     /** Remove a device from the known-devices list permanently. */
@@ -212,62 +254,50 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun sendKey(key: TvKey) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { controller?.sendKey(key) }
-                .onFailure {
-                    Log.e(TAG, "sendKey failed: ${it.message}")
-                    _connectionStatus.value = ConnectionStatus.Error("Remote key failed. TV may have disconnected.")
-                }
-        }
-    }
-
-    fun sendText(text: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { controller?.sendText(text) }
-                .onFailure {
-                    Log.e(TAG, "sendText failed: ${it.message}")
-                    _connectionStatus.value = ConnectionStatus.Error(
-                        it.message ?: "Không gửi được văn bản.")
-                }
+            val targets = if (_isBroadcastMode.value) controllers.values else listOfNotNull(controllers[_connectedDevice.value?.id])
+            targets.forEach { target ->
+                runCatching { target.sendKey(key) }
+                    .onFailure { Log.e(TAG, "sendKey failed for ${target.device.name}: ${it.message}") }
+            }
         }
     }
 
     fun sendTextAndEnter(text: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                controller?.sendText(text)
-                delay(300)
-                controller?.sendKey(TvKey.OK)
-            }.onFailure {
-                Log.e(TAG, "sendTextAndEnter failed: ${it.message}")
-                _connectionStatus.value = ConnectionStatus.Error(
-                    it.message ?: "Không gửi được văn bản.")
+            val targets = if (_isBroadcastMode.value) controllers.values else listOfNotNull(controller)
+            targets.forEach { target ->
+                runCatching {
+                    target.sendText(text)
+                    delay(300)
+                    target.sendKey(TvKey.OK)
+                }.onFailure {
+                    Log.e(TAG, "sendTextAndEnter failed for ${target.device.name}: ${it.message}")
+                }
             }
         }
     }
 
     fun moveMouse(dx: Float, dy: Float) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { controller?.moveMouse(dx, dy) }
-                .onFailure { e ->
-                    Log.e(TAG, "moveMouse failed: ${e.message}")
-                    if (e is UnsupportedOperationException) {
-                        _connectionStatus.value = ConnectionStatus.Error(
-                            e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
+            val targets = if (_isBroadcastMode.value) controllers.values else listOfNotNull(controller)
+            targets.forEach { target ->
+                runCatching { target.moveMouse(dx, dy) }
+                    .onFailure { e ->
+                        Log.e(TAG, "moveMouse failed for ${target.device.name}: ${e.message}")
                     }
-                }
+            }
         }
     }
 
     fun tapMouse() {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { controller?.tapMouse() }
-                .onFailure { e ->
-                    Log.e(TAG, "tapMouse failed: ${e.message}")
-                    if (e is UnsupportedOperationException) {
-                        _connectionStatus.value = ConnectionStatus.Error(
-                            e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
+            val targets = if (_isBroadcastMode.value) controllers.values else listOfNotNull(controller)
+            targets.forEach { target ->
+                runCatching { target.tapMouse() }
+                    .onFailure { e ->
+                        Log.e(TAG, "tapMouse failed for ${target.device.name}: ${e.message}")
                     }
-                }
+            }
         }
     }
 
@@ -300,17 +330,19 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     // ── App management ────────────────────────────────────────────────────────
 
     fun loadInstalledApps() {
+        val device = _connectedDevice.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
             _isLoadingApps.value = true
-            _installedApps.value = runCatching { controller?.getInstalledApps() ?: emptyList() }
+            _installedApps.value = runCatching { controllers[device.id]?.getInstalledApps() ?: emptyList() }
                 .getOrElse { emptyList() }.map { it.toUiModel() }
             _isLoadingApps.value = false
         }
     }
 
     fun launchApp(appId: String) {
+        val device = _connectedDevice.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { controller?.launchApp(appId) }
+            runCatching { controllers[device.id]?.launchApp(appId) }
         }
     }
 
@@ -350,9 +382,12 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     fun runMacro(keys: List<TvKey>) {
         macroJob?.cancel()
         macroJob = viewModelScope.launch(Dispatchers.IO) {
+            val targets = if (_isBroadcastMode.value) controllers.values else listOfNotNull(controller)
             for (key in keys) {
-                if (controller == null || _connectionStatus.value !is ConnectionStatus.Connected) break
-                runCatching { controller?.sendKey(key) }
+                if (targets.isEmpty()) break
+                targets.forEach { target ->
+                    runCatching { target.sendKey(key) }
+                }
                 delay(200)
             }
         }
@@ -368,23 +403,16 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     // ── Internals ─────────────────────────────────────────────────────────────
 
-    private fun buildController(device: TvDevice): TvController = when (device.brand) {
-        TvBrand.SAMSUNG -> SamsungTvController(device)
-        TvBrand.LG      -> LgWebOsController(
-            device                = device,
-            savedPairingKey       = _lgPairingKey.value,
-            onPairingKeyReceived  = { key ->
-                _lgPairingKey.value = key
-                viewModelScope.launch { prefs.saveLastDevice(device) }
-            }
-        )
-        TvBrand.ANDROID -> AndroidTvController(device)
-        TvBrand.UNKNOWN -> SamsungTvController(device)
+    // ── Internals ─────────────────────────────────────────────────────────────
+    
+    private fun buildController(device: TvDevice): TvController {
+        return RemoteControllerFactory.create(device)
     }
 
     override fun onCleared() {
         macroJob?.cancel()
-        controller?.disconnect()
+        controllers.values.forEach { it.disconnect() }
+        controllers.clear()
         stopScan()
         super.onCleared()
     }

@@ -3,8 +3,10 @@ package com.example.uniremote.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -12,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -24,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.uniremote.R
 import com.example.uniremote.ui.components.BottomNavBar
+import com.example.uniremote.ui.components.MultitaskingBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
 import com.example.uniremote.ui.screens.remote.DPadTouchpadLayout
@@ -58,6 +62,9 @@ private val remoteTabs = listOf(
 fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     var selectedRemoteTab by rememberSaveable { mutableStateOf(0) }
     val status by vm.connectionStatus.collectAsState()
+    val connectedDevice by vm.connectedDevice.collectAsState()
+    val activeDevices by vm.activeDevices.collectAsState()
+    val isBroadcast by vm.isBroadcastMode.collectAsState()
     val isConnecting = status is ConnectionStatus.Connecting
 
     Scaffold(
@@ -81,13 +88,63 @@ fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 }
             )
 
+            // ── Multitasking Bar ──────────────────────────────────────────
+            if (activeDevices.size > 1 || isBroadcast) {
+                MultitaskingBar(
+                    activeDevices = activeDevices,
+                    selectedDevice = connectedDevice,
+                    isBroadcast = isBroadcast,
+                    onDeviceClick = { vm.selectDevice(it) },
+                    onBroadcastToggle = { vm.toggleBroadcastMode() }
+                )
+            }
+
             // ── Content ───────────────────────────────────────────────────
             Box(modifier = Modifier.fillMaxSize()) {
-                when (selectedRemoteTab) {
-                    0 -> RemoteVerticalPagerContent(vm)
-                    1 -> DPadTouchpadLayout(vm)
-                    2 -> MouseCursorLayout(vm)
-                    3 -> KeyboardLayout(vm)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = isBroadcast,
+                        enter = androidx.compose.animation.expandVertically() + androidx.compose.animation.fadeIn(),
+                        exit = androidx.compose.animation.shrinkVertically() + androidx.compose.animation.fadeOut()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF6366F1).copy(alpha = 0.8f))
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Radio,
+                                contentDescription = "Broadcast",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Broadcast Mode Active",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    androidx.compose.animation.Crossfade(
+                        targetState = selectedRemoteTab,
+                        label = "remoteTabTransition",
+                        modifier = Modifier.weight(1f)
+                    ) { tab ->
+                        Box(Modifier.fillMaxSize()) {
+                            when (tab) {
+                                0 -> RemoteVerticalPagerContent(vm)
+                                1 -> DPadTouchpadLayout(vm)
+                                2 -> MouseCursorLayout(vm)
+                                3 -> KeyboardLayout(vm)
+                            }
+                        }
+                    }
                 }
 
                 if (isConnecting) {
@@ -216,4 +273,5 @@ private fun RemoteVerticalPagerContent(vm: RemoteViewModel) {
         }
     }
 }
+
 

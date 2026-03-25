@@ -15,8 +15,18 @@ data class TvDevice(
 )
 
 enum class TvBrand(val displayName: String, val defaultPort: Int) {
-    SAMSUNG("Samsung",    8001),
-    LG     ("LG",         3000),
-    ANDROID("Android TV", 5555),
-    UNKNOWN("Unknown TV", 8001)
+    SAMSUNG  ("Samsung",    8001),
+    LG       ("LG",         3000),
+    ANDROID  ("Android TV", 5555),
+    SONY     ("Sony",       8080), // Often uses Android TV but can have specific APIs
+    TCL      ("TCL",       5555), // Usually Android TV
+    XIAOMI   ("Xiaomi",    5555), // Usually Android TV
+    HISENSE  ("Hisense",   5555), // Can be VIDAA or Android TV
+    PANASONIC("Panasonic", 80),   // Viera Remote
+    TOSHIBA  ("Toshiba",   5555),
+    SHARP    ("Sharp",     5555),
+    PHILIPS  ("Philips",   5555),
+    ROKU     ("Roku",       8060),
+    VIZIO    ("Vizio",      7345),
+    UNKNOWN  ("Unknown TV", 8001)
 }
