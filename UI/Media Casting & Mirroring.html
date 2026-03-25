@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Digital Pilot - Media Cast</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;900&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "tertiary-fixed-dim": "#49a8fc",
+                        "surface-container-highest": "#262627",
+                        "surface-container-low": "#131314",
+                        "inverse-surface": "#fcf8f9",
+                        "on-secondary": "#4c5355",
+                        "surface-dim": "#0e0e0f",
+                        "tertiary": "#64b3ff",
+                        "on-tertiary-fixed": "#00192f",
+                        "surface": "#0e0e0f",
+                        "on-tertiary-fixed-variant": "#003c65",
+                        "primary-fixed-dim": "#00e5ee",
+                        "on-primary-fixed-variant": "#006266",
+                        "inverse-primary": "#006a6e",
+                        "secondary-container": "#41484a",
+                        "on-primary-container": "#00575b",
+                        "surface-variant": "#262627",
+                        "on-tertiary-container": "#002440",
+                        "surface-container": "#1a191b",
+                        "secondary": "#dde4e6",
+                        "on-error": "#490006",
+                        "on-error-container": "#ffa8a3",
+                        "on-primary": "#006165",
+                        "on-secondary-container": "#cad1d4",
+                        "error": "#ff716c",
+                        "on-surface-variant": "#adaaab",
+                        "tertiary-dim": "#41a3f7",
+                        "primary": "#a1faff",
+                        "inverse-on-surface": "#565556",
+                        "on-surface": "#ffffff",
+                        "on-background": "#ffffff",
+                        "on-tertiary": "#003053",
+                        "outline-variant": "#484849",
+                        "on-secondary-fixed": "#394043",
+                        "surface-container-lowest": "#000000",
+                        "error-container": "#9f0519",
+                        "surface-container-high": "#201f21",
+                        "outline": "#767576",
+                        "error-dim": "#d7383b",
+                        "primary-fixed": "#00f4fe",
+                        "tertiary-container": "#45a6fa",
+                        "on-primary-fixed": "#004346",
+                        "primary-container": "#00f4fe",
+                        "secondary-dim": "#cfd6d8",
+                        "secondary-fixed": "#dde4e6",
+                        "primary-dim": "#00e5ee",
+                        "on-secondary-fixed-variant": "#565d5f",
+                        "tertiary-fixed": "#6bb6ff",
+                        "surface-bright": "#2c2c2d",
+                        "secondary-fixed-dim": "#cfd6d8",
+                        "background": "#0e0e0f",
+                        "surface-tint": "#a1faff"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .glass-panel {
+            background: rgba(38, 38, 39, 0.4);
+            backdrop-filter: blur(12px);
+        }
+    </style>
+    <style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+
+<body class="bg-background text-on-surface font-body min-h-screen pb-24">
+    <!-- TopAppBar -->
+    <header
+        class="fixed top-0 w-full z-50 bg-[#0e0e0f] dark:bg-[#0e0e0f] flex justify-between items-center px-6 h-16 w-full shadow-[0_0_20px_rgba(0,245,255,0.08)]">
+        <div class="flex items-center gap-3">
+            <span class="material-symbols-outlined text-[#a1faff] dark:text-[#a1faff]"
+                data-icon="settings_remote">settings_remote</span>
+            <h1
+                class="font-['Space_Grotesk'] font-bold tracking-tight text-xl font-black text-[#a1faff] tracking-widest uppercase">
+                Digital Pilot</h1>
+        </div>
+        <button
+            class="text-[#adaaab] hover:bg-[#2c2c2d] transition-colors p-2 rounded-full active:scale-95 duration-200">
+            <span class="material-symbols-outlined" data-icon="power_settings_new">power_settings_new</span>
+        </button>
+    </header>
+    <main class="pt-20 px-4 max-w-2xl mx-auto space-y-8">
+        <!-- Casting Section -->
+        <section class="space-y-4">
+            <div class="flex items-end justify-between px-2">
+                <h2 class="font-headline text-2xl font-bold tracking-tight text-primary">Casting</h2>
+                <span class="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Gallery
+                    Stream</span>
+            </div>
+            <!-- Tabs -->
+            <div class="bg-surface-container-low rounded-xl p-1 flex gap-1">
+                <button
+                    class="flex-1 py-2 rounded-lg bg-surface-bright text-primary text-sm font-medium shadow-sm transition-all">Photos</button>
+                <button
+                    class="flex-1 py-2 rounded-lg text-on-surface-variant hover:text-on-surface text-sm font-medium transition-all">Videos</button>
+                <button
+                    class="flex-1 py-2 rounded-lg text-on-surface-variant hover:text-on-surface text-sm font-medium transition-all">Music</button>
+            </div>
+            <!-- Media Preview Grid (Bento Style) -->
+            <div class="grid grid-cols-6 grid-rows-2 gap-3 h-64">
+                <div
+                    class="col-span-4 row-span-2 rounded-xl overflow-hidden relative group cursor-pointer border-outline-variant/10 border">
+                    <img class="w-full h-full object-cover" data-alt="Breathtaking mountain landscape at sunrise"
+                        src="https://lh3.googleusercontent.com/aida-public/AB6AXuAMIo_ocMgo28ulpb5sAunK65YqEcuz-mTf_9B0ePHi1lFuTkjm9TfrvOdfZ0bwHZVO3g5VQ51jqWDhNDRAsUtb0menY-gibaallTm9mHj6clwLrFRq-feZ8PixDZtgOObadkaKk6HeRC0Vzp8fAGgQduhHvgE73I-Nt0kCqK3QUe6COaZ-4Gf6bOX77NWphyWS9PSFvzfnQZivm1AIVFKXJ3ty6bzK7A8Z3v8SeYNvbVbfGrz4P36ZB6eY_87d4WtFxnIXqwCYrF4" />
+                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
+                    <div class="absolute bottom-3 left-3 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-white text-sm" data-icon="image">image</span>
+                        <span class="text-white text-xs font-medium">Recent Memories</span>
+                    </div>
+                </div>
+                <div class="col-span-2 row-span-1 rounded-xl overflow-hidden relative border-outline-variant/10 border">
+                    <img class="w-full h-full object-cover opacity-60"
+                        data-alt="Modern home studio setup with audio equipment"
+                        src="https://lh3.googleusercontent.com/aida-public/AB6AXuCAsmiX_P_h72oyRt0JNP_PWSceF9wy2QBW7YX7iOCBMjAVnTOe_fPrBCAOrxSCLDvwE8MyEwm8eaGiB9zi27Mxae4OHSrcelyfapkOUdAY4yLkqyrTu5ziuW44DiM-I8QhHM625KCalxVyJG6c4L_-c_qgIX-iTloS32WonfRqDM2AEVH4mhipKF3V8da8zPQGdGfsDtYRDCMkBp9KEM4xri-haGrjyYFfFn0lelPeMxG8hRtcj1hV0AAoVPXDlvjfjcOHE2jcsUM" />
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-primary text-3xl"
+                            data-icon="play_circle">play_circle</span>
+                    </div>
+                </div>
+                <div
+                    class="col-span-2 row-span-1 rounded-xl bg-surface-container-high border-outline-variant/10 border flex flex-col items-center justify-center gap-1">
+                    <span class="material-symbols-outlined text-on-surface-variant"
+                        data-icon="add_to_photos">add_to_photos</span>
+                    <span class="text-[10px] uppercase tracking-tighter text-on-surface-variant font-bold">Browse
+                        All</span>
+                </div>
+            </div>
+        </section>
+        <!-- Mirroring Section -->
+        <section class="space-y-6">
+            <div class="flex items-end justify-between px-2">
+                <h2 class="font-headline text-2xl font-bold tracking-tight text-primary">Screen Mirroring</h2>
+                <div class="flex items-center gap-2 bg-primary/10 px-3 py-1 rounded-full">
+                    <span class="w-2 h-2 bg-primary rounded-full animate-pulse"></span>
+                    <span class="text-[10px] font-bold text-primary uppercase tracking-tighter">Ready to connect</span>
+                </div>
+            </div>
+            <!-- Mirroring Card -->
+            <div class="bg-surface-container-low rounded-[2rem] p-8 relative overflow-hidden">
+                <!-- Background Decorative Glow -->
+                <div class="absolute -top-24 -right-24 w-64 h-64 bg-primary/5 rounded-full blur-[80px]"></div>
+                <div class="relative z-10 flex flex-col items-center gap-8">
+                    <!-- Visual Representation -->
+                    <div class="flex items-center justify-center gap-6 w-full">
+                        <div
+                            class="w-16 h-28 rounded-xl border-2 border-outline-variant bg-surface-container-lowest flex items-center justify-center">
+                            <span class="material-symbols-outlined text-outline-variant"
+                                data-icon="smartphone">smartphone</span>
+                        </div>
+                        <div
+                            class="flex-1 h-[2px] bg-gradient-to-r from-outline-variant via-primary to-outline-variant relative">
+                            <span
+                                class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 material-symbols-outlined text-primary bg-surface-container-low px-2"
+                                data-icon="sync_alt">sync_alt</span>
+                        </div>
+                        <div
+                            class="w-24 h-16 rounded-lg border-2 border-primary bg-surface-container-lowest flex items-center justify-center shadow-[0_0_15px_rgba(161,250,255,0.2)]">
+                            <span class="material-symbols-outlined text-primary" data-icon="tv">tv</span>
+                        </div>
+                    </div>
+                    <!-- Start Button -->
+                    <button
+                        class="w-full py-5 rounded-full bg-gradient-to-br from-[#a1faff] to-[#00f4fe] text-[#0e0e0f] font-headline font-black text-lg uppercase tracking-widest shadow-[0_8px_32px_rgba(0,244,254,0.3)] active:scale-95 transition-transform duration-200">
+                        Start Mirroring
+                    </button>
+                    <!-- Settings Row -->
+                    <div class="w-full glass-panel rounded-2xl p-4 flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-surface-bright rounded-lg">
+                                <span class="material-symbols-outlined text-primary" data-icon="bolt">bolt</span>
+                            </div>
+                            <div class="flex flex-col">
+                                <span class="text-sm font-bold text-on-surface">Low Latency Mode</span>
+                                <span class="text-[10px] text-on-surface-variant uppercase tracking-tighter">Optimize
+                                    for Gaming</span>
+                            </div>
+                        </div>
+                        <!-- Toggle Switch -->
+                        <div class="w-12 h-6 bg-primary rounded-full relative p-1 cursor-pointer">
+                            <div class="w-4 h-4 bg-surface rounded-full absolute right-1"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Connection Hint -->
+            <p class="text-center text-on-surface-variant text-xs flex items-center justify-center gap-2">
+                <span class="material-symbols-outlined text-sm" data-icon="info">info</span>
+                Ensure both devices are on the same Wi-Fi network
+            </p>
+        </section>
+    </main>
+    <!-- BottomNavBar -->
+    <nav
+        class="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-6 pt-2 bg-[#0e0e0f]/60 backdrop-blur-xl dark:bg-[#0e0e0f]/60 z-50 rounded-t-[2rem] shadow-[0_-8px_32px_rgba(0,0,0,0.5)]">
+        <!-- Remote -->
+        <a class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined mb-1" data-icon="settings_remote">settings_remote</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold">Remote</span>
+        </a>
+        <!-- Apps -->
+        <a class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined mb-1" data-icon="apps">apps</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold">Apps</span>
+        </a>
+        <!-- Cast (Active) -->
+        <a class="flex flex-col items-center justify-center bg-gradient-to-br from-[#a1faff] to-[#00f4fe] text-[#0e0e0f] rounded-full p-3 shadow-[0_0_15px_rgba(161,250,255,0.5)] active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined" data-icon="cast"
+                style="font-variation-settings: 'FILL' 1;">cast</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold mt-0.5">Cast</span>
+        </a>
+        <!-- Settings -->
+        <a class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined mb-1" data-icon="settings">settings</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold">Settings</span>
+        </a>
+    </nav>
+</body>
+
+</html>

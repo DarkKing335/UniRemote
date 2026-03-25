@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;900&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "tertiary-fixed-dim": "#49a8fc",
+                        "surface-container-highest": "#262627",
+                        "surface-container-low": "#131314",
+                        "inverse-surface": "#fcf8f9",
+                        "on-secondary": "#4c5355",
+                        "surface-dim": "#0e0e0f",
+                        "tertiary": "#64b3ff",
+                        "on-tertiary-fixed": "#00192f",
+                        "surface": "#0e0e0f",
+                        "on-tertiary-fixed-variant": "#003c65",
+                        "primary-fixed-dim": "#00e5ee",
+                        "on-primary-fixed-variant": "#006266",
+                        "inverse-primary": "#006a6e",
+                        "secondary-container": "#41484a",
+                        "on-primary-container": "#00575b",
+                        "surface-variant": "#262627",
+                        "on-tertiary-container": "#002440",
+                        "surface-container": "#1a191b",
+                        "secondary": "#dde4e6",
+                        "on-error": "#490006",
+                        "on-error-container": "#ffa8a3",
+                        "on-primary": "#006165",
+                        "on-secondary-container": "#cad1d4",
+                        "error": "#ff716c",
+                        "on-surface-variant": "#adaaab",
+                        "tertiary-dim": "#41a3f7",
+                        "primary": "#a1faff",
+                        "inverse-on-surface": "#565556",
+                        "on-surface": "#ffffff",
+                        "on-background": "#ffffff",
+                        "on-tertiary": "#003053",
+                        "outline-variant": "#484849",
+                        "on-secondary-fixed": "#394043",
+                        "surface-container-lowest": "#000000",
+                        "error-container": "#9f0519",
+                        "surface-container-high": "#201f21",
+                        "outline": "#767576",
+                        "error-dim": "#d7383b",
+                        "primary-fixed": "#00f4fe",
+                        "tertiary-container": "#45a6fa",
+                        "on-primary-fixed": "#004346",
+                        "primary-container": "#00f4fe",
+                        "secondary-dim": "#cfd6d8",
+                        "secondary-fixed": "#dde4e6",
+                        "primary-dim": "#00e5ee",
+                        "on-secondary-fixed-variant": "#565d5f",
+                        "tertiary-fixed": "#6bb6ff",
+                        "surface-bright": "#2c2c2d",
+                        "secondary-fixed-dim": "#cfd6d8",
+                        "background": "#0e0e0f",
+                        "surface-tint": "#a1faff"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .tonal-shift {
+            background: linear-gradient(180deg, #131314 0%, #0e0e0f 100%);
+        }
+
+        .glass-panel {
+            background: rgba(32, 31, 33, 0.4);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+        }
+
+        .kinetic-touchpad {
+            background: radial-gradient(circle at center, #262627 0%, #131314 100%);
+        }
+
+        .primary-glow {
+            box-shadow: 0 0 30px rgba(0, 244, 254, 0.15);
+        }
+    </style>
+    <style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+
+<body class="bg-surface font-body text-on-surface select-none overflow-hidden">
+    <!-- TopAppBar -->
+    <header
+        class="fixed top-0 w-full z-50 bg-[#0e0e0f] dark:bg-[#0e0e0f] shadow-[0_0_20px_rgba(0,245,255,0.08)] flex justify-between items-center px-6 h-16 w-full">
+        <div class="flex items-center gap-3">
+            <span class="material-symbols-outlined text-[#a1faff]" data-icon="settings_remote">settings_remote</span>
+            <span
+                class="font-['Space_Grotesk'] font-bold tracking-tight text-xl font-black text-[#a1faff] tracking-widest uppercase">Digital
+                Pilot</span>
+        </div>
+        <div class="flex items-center gap-2 px-4 py-1.5 rounded-full bg-surface-container-low">
+            <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+            <span class="text-[10px] font-label font-bold tracking-widest text-on-surface-variant uppercase">Living Room
+                Samsung OLED</span>
+        </div>
+        <button
+            class="w-10 h-10 flex items-center justify-center rounded-full text-[#adaaab] hover:bg-[#2c2c2d] transition-colors active:scale-95 duration-200">
+            <span class="material-symbols-outlined" data-icon="power_settings_new">power_settings_new</span>
+        </button>
+    </header>
+    <main class="pt-20 pb-32 px-6 h-screen flex flex-col gap-6 max-w-lg mx-auto overflow-y-auto">
+        <!-- Power & Smart Wake Section -->
+        <section class="grid grid-cols-2 gap-4">
+            <button
+                class="flex flex-col items-center justify-center h-28 rounded-xl bg-error-container/20 text-error-dim border border-error/10 hover:bg-error-container/30 transition-all active:scale-95">
+                <span class="material-symbols-outlined text-3xl mb-2"
+                    data-icon="power_settings_new">power_settings_new</span>
+                <span class="text-[10px] font-bold tracking-widest uppercase">Power Off</span>
+            </button>
+            <button
+                class="flex flex-col items-center justify-center h-28 rounded-xl bg-gradient-to-br from-primary to-primary-container text-surface-dim shadow-[0_0_20px_rgba(161,250,255,0.3)] hover:opacity-90 transition-all active:scale-95">
+                <span class="material-symbols-outlined text-3xl mb-2" data-icon="bolt">bolt</span>
+                <span class="text-[10px] font-bold tracking-widest uppercase">Smart Wake</span>
+            </button>
+        </section>
+        <!-- Kinetic Touchpad Area -->
+        <section class="relative group">
+            <div
+                class="kinetic-touchpad aspect-square rounded-[2.5rem] p-1 flex flex-col items-center justify-center relative overflow-hidden shadow-[inset_0_0_40px_rgba(0,0,0,0.6)] border border-outline-variant/10">
+                <!-- Optical Cursor Effect -->
+                <div
+                    class="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(161,250,255,0.03)_0%,transparent_60%)]">
+                </div>
+                <div class="grid grid-cols-3 grid-rows-3 w-full h-full relative z-10">
+                    <div class="flex items-center justify-center opacity-20 group-hover:opacity-60 transition-opacity">
+                        <span class="material-symbols-outlined text-on-surface-variant"
+                            data-icon="keyboard_arrow_up">keyboard_arrow_up</span>
+                    </div>
+                    <div class="flex items-center justify-center col-start-2"></div>
+                    <div
+                        class="flex items-center justify-center col-start-3 opacity-20 group-hover:opacity-60 transition-opacity">
+                        <span class="material-symbols-outlined text-on-surface-variant"
+                            data-icon="keyboard_arrow_up">keyboard_arrow_up</span>
+                    </div>
+                    <div class="flex items-center justify-center opacity-20 group-hover:opacity-60 transition-opacity">
+                        <span class="material-symbols-outlined text-on-surface-variant"
+                            data-icon="keyboard_arrow_left">keyboard_arrow_left</span>
+                    </div>
+                    <div class="flex items-center justify-center">
+                        <div
+                            class="w-32 h-32 rounded-full border-2 border-primary/20 flex items-center justify-center bg-surface-bright/20 backdrop-blur-md active:scale-90 transition-transform">
+                            <span
+                                class="text-xs font-headline font-bold text-primary uppercase tracking-[0.2em]">Select</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-center opacity-20 group-hover:opacity-60 transition-opacity">
+                        <span class="material-symbols-outlined text-on-surface-variant"
+                            data-icon="keyboard_arrow_right">keyboard_arrow_right</span>
+                    </div>
+                    <div class="flex items-center justify-center opacity-20 group-hover:opacity-60 transition-opacity">
+                        <span class="material-symbols-outlined text-on-surface-variant"
+                            data-icon="keyboard_arrow_down">keyboard_arrow_down</span>
+                    </div>
+                    <div class="flex items-center justify-center col-start-2"></div>
+                    <div
+                        class="flex items-center justify-center col-start-3 opacity-20 group-hover:opacity-60 transition-opacity">
+                        <span class="material-symbols-outlined text-on-surface-variant"
+                            data-icon="keyboard_arrow_down">keyboard_arrow_down</span>
+                    </div>
+                </div>
+                <!-- Decorative UI Elements -->
+                <div class="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-1">
+                    <div class="w-1.5 h-1.5 rounded-full bg-primary-fixed-dim/40"></div>
+                    <div class="w-1.5 h-1.5 rounded-full bg-primary-fixed-dim/40"></div>
+                    <div class="w-1.5 h-1.5 rounded-full bg-primary-fixed-dim/40"></div>
+                </div>
+            </div>
+        </section>
+        <!-- Volume and Channel Sliders -->
+        <section class="grid grid-cols-2 gap-6 items-end">
+            <!-- Volume Slider -->
+            <div
+                class="flex flex-col items-center gap-4 bg-surface-container-low p-4 rounded-3xl h-64 justify-between border border-outline-variant/5">
+                <button
+                    class="w-12 h-12 rounded-full bg-surface-bright flex items-center justify-center active:bg-primary-container active:text-surface transition-colors">
+                    <span class="material-symbols-outlined" data-icon="add">add</span>
+                </button>
+                <div class="flex-1 w-2 bg-surface-container-highest rounded-full relative overflow-hidden">
+                    <div
+                        class="absolute bottom-0 w-full h-2/3 bg-gradient-to-t from-primary to-primary-container rounded-full primary-glow">
+                    </div>
+                </div>
+                <button
+                    class="w-12 h-12 rounded-full bg-surface-bright flex items-center justify-center active:bg-primary-container active:text-surface transition-colors">
+                    <span class="material-symbols-outlined" data-icon="remove">remove</span>
+                </button>
+                <span
+                    class="text-[10px] font-label font-bold tracking-widest text-on-surface-variant uppercase">Volume</span>
+            </div>
+            <!-- Channel Slider -->
+            <div
+                class="flex flex-col items-center gap-4 bg-surface-container-low p-4 rounded-3xl h-64 justify-between border border-outline-variant/5">
+                <button
+                    class="w-12 h-12 rounded-full bg-surface-bright flex items-center justify-center active:bg-primary-container active:text-surface transition-colors">
+                    <span class="material-symbols-outlined" data-icon="expand_less">expand_less</span>
+                </button>
+                <div class="flex flex-col items-center justify-center gap-1">
+                    <span class="font-headline text-2xl font-black text-primary">024</span>
+                    <span
+                        class="text-[8px] font-label font-bold text-on-surface-variant uppercase tracking-tighter">Current</span>
+                </div>
+                <button
+                    class="w-12 h-12 rounded-full bg-surface-bright flex items-center justify-center active:bg-primary-container active:text-surface transition-colors">
+                    <span class="material-symbols-outlined" data-icon="expand_more">expand_more</span>
+                </button>
+                <span
+                    class="text-[10px] font-label font-bold tracking-widest text-on-surface-variant uppercase">Channel</span>
+            </div>
+        </section>
+        <!-- Playback Controls -->
+        <section class="glass-panel flex justify-around items-center p-6 rounded-3xl mb-8">
+            <button class="text-on-surface-variant hover:text-primary transition-colors">
+                <span class="material-symbols-outlined text-2xl" data-icon="skip_previous">skip_previous</span>
+            </button>
+            <button class="text-on-surface-variant hover:text-primary transition-colors">
+                <span class="material-symbols-outlined text-2xl" data-icon="fast_rewind">fast_rewind</span>
+            </button>
+            <button
+                class="w-16 h-16 rounded-full bg-surface-bright flex items-center justify-center shadow-xl active:scale-90 transition-transform">
+                <span class="material-symbols-outlined text-4xl text-primary" data-icon="play_arrow"
+                    style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+            </button>
+            <button class="text-on-surface-variant hover:text-primary transition-colors">
+                <span class="material-symbols-outlined text-2xl" data-icon="fast_forward">fast_forward</span>
+            </button>
+            <button class="text-on-surface-variant hover:text-primary transition-colors">
+                <span class="material-symbols-outlined text-2xl" data-icon="skip_next">skip_next</span>
+            </button>
+        </section>
+    </main>
+    <!-- BottomNavBar -->
+    <nav
+        class="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-8 pt-4 bg-[#0e0e0f]/60 backdrop-blur-xl dark:bg-[#0e0e0f]/60 shadow-[0_-8px_32px_rgba(0,0,0,0.5)] z-50 rounded-t-[2.5rem]">
+        <!-- Remote (Active) -->
+        <div
+            class="flex flex-col items-center justify-center bg-gradient-to-br from-[#a1faff] to-[#00f4fe] text-[#0e0e0f] rounded-full p-3 shadow-[0_0_15px_rgba(161,250,255,0.5)] active:scale-90 duration-300 ease-out">
+            <span class="material-symbols-outlined" data-icon="settings_remote">settings_remote</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold mt-1">Remote</span>
+        </div>
+        <!-- Apps -->
+        <div
+            class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out">
+            <span class="material-symbols-outlined" data-icon="apps">apps</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold mt-1">Apps</span>
+        </div>
+        <!-- Cast -->
+        <div
+            class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out">
+            <span class="material-symbols-outlined" data-icon="cast">cast</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold mt-1">Cast</span>
+        </div>
+        <!-- Settings -->
+        <div
+            class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out">
+            <span class="material-symbols-outlined" data-icon="settings">settings</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold mt-1">Settings</span>
+        </div>
+    </nav>
+</body>
+
+</html>

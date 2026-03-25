@@ -1,0 +1,214 @@
+package com.example.uniremote.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.dp
+import com.example.uniremote.ui.components.BottomNavBar
+import com.example.uniremote.ui.components.NavigationTab
+import com.example.uniremote.ui.components.TopBar
+import com.example.uniremote.ui.screens.remote.DPadTouchpadLayout
+import com.example.uniremote.ui.screens.remote.MouseCursorLayout
+import com.example.uniremote.ui.screens.remote.KeyboardLayout
+import com.example.uniremote.ui.screens.remote.InputSourceLayout
+import com.example.uniremote.ui.screens.remote.MainLayout
+import com.example.uniremote.ui.screens.remote.MediaPlaybackLayout
+import com.example.uniremote.ui.screens.remote.NumpadLayout
+import com.example.uniremote.ui.theme.PremiumBgEnd
+import com.example.uniremote.ui.theme.PremiumBgStart
+import kotlin.math.abs
+
+// ── Top-level tab definition ────────────────────────────────────────────────
+private data class RemoteTab(
+    val icon: ImageVector,
+    val label: String,
+    val enabled: Boolean = true   // tab 4 = disabled
+)
+
+private val remoteTabs = listOf(
+    RemoteTab(Icons.Filled.GridView,      "Remote"),   // Tab 1 – VerticalPager 4 pages
+    RemoteTab(Icons.Filled.Games,         "D-Pad"),    // Tab 2 – placeholder
+    RemoteTab(Icons.Filled.NearMe,        "TouchPad"), // Tab 3 – placeholder
+    RemoteTab(Icons.Filled.Keyboard,      "Keyboard")  // Tab 4 – UI sẽ cung cấp sau
+)
+
+// ── Screen ──────────────────────────────────────────────────────────────────
+@Composable
+fun MainRemoteScreen(onNavigate: (NavigationTab) -> Unit) {
+    var selectedRemoteTab by rememberSaveable { mutableStateOf(0) }
+
+    Scaffold(
+        topBar = { TopBar(title = "DIGITAL PILOT", onPowerClick = {}) },
+        bottomBar = { BottomNavBar(currentTab = NavigationTab.REMOTE, onTabSelected = onNavigate) },
+        containerColor = Color.Transparent
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(PremiumBgStart, PremiumBgEnd)))
+                .padding(paddingValues)
+        ) {
+            // ── Top Tab Bar ────────────────────────────────────────────────
+            RemoteTopTabBar(
+                tabs = remoteTabs,
+                selectedIndex = selectedRemoteTab,
+                onTabSelected = { index ->
+                    if (remoteTabs[index].enabled) selectedRemoteTab = index
+                    // disabled tab: ignore click, state unchanged
+                }
+            )
+
+            // ── Content ───────────────────────────────────────────────────
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (selectedRemoteTab) {
+                    0 -> RemoteVerticalPagerContent()
+                    1 -> DPadTouchpadLayout()               // Tab 2 – D-Pad touchpad
+                    2 -> MouseCursorLayout()               // Tab 3 – Mouse cursor
+                    3 -> KeyboardLayout()                  // Tab 4 – Bàn phím
+                }
+            }
+        }
+    }
+}
+
+// ── Top tab bar composable ──────────────────────────────────────────────────
+@Composable
+private fun RemoteTopTabBar(
+    tabs: List<RemoteTab>,
+    selectedIndex: Int,
+    onTabSelected: (Int) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color.Black.copy(alpha = 0.25f)),
+        horizontalArrangement = Arrangement.SpaceAround
+    ) {
+        tabs.forEachIndexed { index, tab ->
+            val isSelected = selectedIndex == index
+            val iconTint = when {
+                !tab.enabled  -> Color.White.copy(alpha = 0.25f)
+                isSelected    -> Color.White
+                else          -> Color.White.copy(alpha = 0.50f)
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onTabSelected(index) }
+                    )
+                    .padding(vertical = 10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Icon(
+                    imageVector = tab.icon,
+                    contentDescription = tab.label,
+                    tint = iconTint,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                // Active underline
+                Box(
+                    modifier = Modifier
+                        .height(2.dp)
+                        .fillMaxWidth(0.5f)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else Color.Transparent
+                        )
+                )
+            }
+        }
+    }
+}
+
+// ── Tab 1 content: VerticalPager with 4 pages ───────────────────────────────
+@Composable
+private fun RemoteVerticalPagerContent() {
+    val pagerState = rememberPagerState(pageCount = { 4 })
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        VerticalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            val pageOffset = abs((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction)
+            val pageAlpha = (1f - pageOffset).coerceIn(0f, 1f)
+
+            when (page) {
+                0 -> MainLayout(pageAlpha)
+                1 -> NumpadLayout(pageAlpha)
+                2 -> MediaPlaybackLayout()
+                3 -> InputSourceLayout()
+            }
+        }
+
+        // Vertical dot indicator
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            repeat(4) { i ->
+                val isSelected = pagerState.currentPage == i
+                Box(
+                    modifier = Modifier
+                        .size(if (isSelected) 8.dp else 6.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) Color.White else Color.White.copy(alpha = 0.3f))
+                )
+            }
+        }
+    }
+}
+
+// ── Placeholder cho tab chưa có UI ──────────────────────────────────────────
+@Composable
+private fun RemotePlaceholder(label: String) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Filled.Construction,
+                contentDescription = null,
+                tint = Color.White.copy(alpha = 0.3f),
+                modifier = Modifier.size(48.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = label,
+                color = Color.White.copy(alpha = 0.4f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = "UI đang phát triển",
+                color = Color.White.copy(alpha = 0.25f),
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+    }
+}

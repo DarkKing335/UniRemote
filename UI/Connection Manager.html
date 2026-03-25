@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700;900&amp;family=Inter:wght@300;400;500;600;700&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "tertiary-fixed-dim": "#49a8fc",
+                        "surface-container-highest": "#262627",
+                        "surface-container-low": "#131314",
+                        "inverse-surface": "#fcf8f9",
+                        "on-secondary": "#4c5355",
+                        "surface-dim": "#0e0e0f",
+                        "tertiary": "#64b3ff",
+                        "on-tertiary-fixed": "#00192f",
+                        "surface": "#0e0e0f",
+                        "on-tertiary-fixed-variant": "#003c65",
+                        "primary-fixed-dim": "#00e5ee",
+                        "on-primary-fixed-variant": "#006266",
+                        "inverse-primary": "#006a6e",
+                        "secondary-container": "#41484a",
+                        "on-primary-container": "#00575b",
+                        "surface-variant": "#262627",
+                        "on-tertiary-container": "#002440",
+                        "surface-container": "#1a191b",
+                        "secondary": "#dde4e6",
+                        "on-error": "#490006",
+                        "on-error-container": "#ffa8a3",
+                        "on-primary": "#006165",
+                        "on-secondary-container": "#cad1d4",
+                        "error": "#ff716c",
+                        "on-surface-variant": "#adaaab",
+                        "tertiary-dim": "#41a3f7",
+                        "primary": "#a1faff",
+                        "inverse-on-surface": "#565556",
+                        "on-surface": "#ffffff",
+                        "on-background": "#ffffff",
+                        "on-tertiary": "#003053",
+                        "outline-variant": "#484849",
+                        "on-secondary-fixed": "#394043",
+                        "surface-container-lowest": "#000000",
+                        "error-container": "#9f0519",
+                        "surface-container-high": "#201f21",
+                        "outline": "#767576",
+                        "error-dim": "#d7383b",
+                        "primary-fixed": "#00f4fe",
+                        "tertiary-container": "#45a6fa",
+                        "on-primary-fixed": "#004346",
+                        "primary-container": "#00f4fe",
+                        "secondary-dim": "#cfd6d8",
+                        "secondary-fixed": "#dde4e6",
+                        "primary-dim": "#00e5ee",
+                        "on-secondary-fixed-variant": "#565d5f",
+                        "tertiary-fixed": "#6bb6ff",
+                        "surface-bright": "#2c2c2d",
+                        "secondary-fixed-dim": "#cfd6d8",
+                        "background": "#0e0e0f",
+                        "surface-tint": "#a1faff"
+                    },
+                    fontFamily: {
+                        "headline": ["Space Grotesk"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: { "DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px" },
+                },
+            },
+        }
+    </script>
+    <style>
+        .glass-card {
+            background: rgba(38, 38, 39, 0.4);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .active-icon {
+            font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        body {
+            background-color: #0e0e0f;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+    <style>
+        body {
+            min-height: max(884px, 100dvh);
+        }
+    </style>
+</head>
+
+<body class="bg-surface text-on-surface min-h-screen pb-32">
+    <!-- TopAppBar -->
+    <header
+        class="fixed top-0 w-full z-50 bg-[#0e0e0f] shadow-[0_0_20px_rgba(0,245,255,0.08)] flex justify-between items-center px-6 h-16 w-full">
+        <div class="flex items-center gap-3">
+            <span class="material-symbols-outlined text-[#a1faff]" data-icon="settings_remote">settings_remote</span>
+            <h1
+                class="font-['Space_Grotesk'] font-bold tracking-tight text-xl font-black text-[#a1faff] tracking-widest uppercase">
+                Digital Pilot</h1>
+        </div>
+        <button class="hover:bg-[#2c2c2d] transition-colors p-2 rounded-full active:scale-95 duration-200">
+            <span class="material-symbols-outlined text-[#a1faff]"
+                data-icon="power_settings_new">power_settings_new</span>
+        </button>
+    </header>
+    <main class="pt-24 px-6 max-w-2xl mx-auto space-y-8">
+        <!-- Currently Paired Device Section -->
+        <section class="space-y-4">
+            <div class="flex items-baseline justify-between">
+                <h2 class="font-headline text-on-surface-variant text-sm font-bold uppercase tracking-[0.15em]">
+                    Connected Device</h2>
+                <span
+                    class="text-primary-fixed text-[10px] font-bold uppercase tracking-widest flex items-center gap-1">
+                    <span class="w-1.5 h-1.5 rounded-full bg-primary-fixed"></span> Online
+                </span>
+            </div>
+            <div class="glass-card rounded-xl p-6 relative overflow-hidden group">
+                <!-- Background Gradient Glow -->
+                <div class="absolute -right-10 -top-10 w-40 h-40 bg-primary/10 rounded-full blur-3xl"></div>
+                <div class="flex items-center gap-6 relative z-10">
+                    <div
+                        class="w-16 h-16 rounded-lg bg-surface-container-highest flex items-center justify-center shadow-lg">
+                        <span class="material-symbols-outlined text-primary text-4xl" data-icon="tv">tv</span>
+                    </div>
+                    <div class="flex-1">
+                        <h3 class="font-headline text-2xl font-bold tracking-tight">OLED Living Room</h3>
+                        <p class="text-on-surface-variant text-sm font-body">BRAVIA XR-65A80J • 192.168.1.42</p>
+                    </div>
+                </div>
+                <div class="mt-8 pt-6 border-t border-outline-variant/20 flex items-center justify-between">
+                    <div class="flex flex-col">
+                        <span class="text-xs font-bold text-on-surface uppercase tracking-wider">Auto-Reconnect</span>
+                        <span class="text-[10px] text-on-surface-variant">Connect automatically on launch</span>
+                    </div>
+                    <button
+                        class="w-12 h-6 rounded-full bg-primary-container relative flex items-center px-1 transition-colors">
+                        <div class="w-4 h-4 rounded-full bg-on-primary shadow-sm translate-x-6"></div>
+                    </button>
+                </div>
+            </div>
+        </section>
+        <!-- Connectivity Bento Grid -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Recently Connected -->
+            <div class="space-y-4 md:col-span-2">
+                <h2 class="font-headline text-on-surface-variant text-sm font-bold uppercase tracking-[0.15em]">Recently
+                    Connected</h2>
+                <div class="space-y-3">
+                    <div
+                        class="flex items-center justify-between p-4 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-all cursor-pointer group">
+                        <div class="flex items-center gap-4">
+                            <span
+                                class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors"
+                                data-icon="laptop_mac">laptop_mac</span>
+                            <span class="font-medium">Master Bedroom TV</span>
+                        </div>
+                        <span class="material-symbols-outlined text-outline-variant text-sm"
+                            data-icon="chevron_right">chevron_right</span>
+                    </div>
+                    <div
+                        class="flex items-center justify-between p-4 bg-surface-container-low rounded-xl hover:bg-surface-container-high transition-all cursor-pointer group">
+                        <div class="flex items-center gap-4">
+                            <span
+                                class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors"
+                                data-icon="desktop_windows">desktop_windows</span>
+                            <span class="font-medium">Studio Display</span>
+                        </div>
+                        <span class="material-symbols-outlined text-outline-variant text-sm"
+                            data-icon="chevron_right">chevron_right</span>
+                    </div>
+                </div>
+            </div>
+            <!-- Settings Group 1: Tactile -->
+            <div class="bg-surface-container-low rounded-xl p-5 space-y-6">
+                <div class="flex items-center gap-3">
+                    <span class="material-symbols-outlined text-primary" data-icon="vibration">vibration</span>
+                    <h3 class="font-headline text-sm font-bold uppercase tracking-widest">Tactile Engine</h3>
+                </div>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-on-surface-variant">Haptic Feedback</span>
+                        <button class="w-10 h-5 rounded-full bg-surface-bright relative flex items-center px-1">
+                            <div class="w-3 h-3 rounded-full bg-on-surface-variant translate-x-5 !bg-primary"></div>
+                        </button>
+                    </div>
+                    <div class="space-y-2">
+                        <div
+                            class="flex justify-between text-[10px] uppercase font-bold text-on-surface-variant tracking-tighter">
+                            <span>Intensity</span>
+                            <span class="text-primary">85%</span>
+                        </div>
+                        <div class="h-1.5 w-full bg-surface-container-highest rounded-full overflow-hidden">
+                            <div class="h-full bg-primary w-[85%]"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Settings Group 2: Sensitivity -->
+            <div class="bg-surface-container-low rounded-xl p-5 space-y-6">
+                <div class="flex items-center gap-3">
+                    <span class="material-symbols-outlined text-primary" data-icon="touch_app">touch_app</span>
+                    <h3 class="font-headline text-sm font-bold uppercase tracking-widest">Response</h3>
+                </div>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-on-surface-variant">Dynamic Scaling</span>
+                        <button class="w-10 h-5 rounded-full bg-surface-bright relative flex items-center px-1">
+                            <div class="w-3 h-3 rounded-full bg-on-surface-variant"></div>
+                        </button>
+                    </div>
+                    <div class="space-y-2">
+                        <div
+                            class="flex justify-between text-[10px] uppercase font-bold text-on-surface-variant tracking-tighter">
+                            <span>Remote Sensitivity</span>
+                            <span class="text-primary">Medium</span>
+                        </div>
+                        <div class="flex justify-between gap-1">
+                            <div class="h-1.5 flex-1 bg-primary rounded-full"></div>
+                            <div class="h-1.5 flex-1 bg-primary rounded-full"></div>
+                            <div class="h-1.5 flex-1 bg-surface-container-highest rounded-full"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        <!-- Scan Button Section -->
+        <section class="pt-4">
+            <button
+                class="w-full py-5 rounded-xl bg-gradient-to-br from-[#a1faff] to-[#00f4fe] text-[#0e0e0f] font-headline font-bold uppercase tracking-[0.2em] shadow-[0_8px_32px_rgba(0,245,255,0.2)] active:scale-[0.98] transition-all flex items-center justify-center gap-3">
+                <span class="material-symbols-outlined font-bold" data-icon="radar">radar</span>
+                Scan for New Devices
+            </button>
+            <p class="text-center text-[10px] text-on-surface-variant mt-4 uppercase tracking-[0.1em]">Searching for
+                devices on "Digital_Pilot_5G"</p>
+        </section>
+    </main>
+    <!-- BottomNavBar -->
+    <nav
+        class="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-6 pt-2 bg-[#0e0e0f]/60 backdrop-blur-xl z-50 rounded-t-[2rem] shadow-[0_-8px_32px_rgba(0,0,0,0.5)]">
+        <a class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined mb-1" data-icon="settings_remote">settings_remote</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold">Remote</span>
+        </a>
+        <a class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined mb-1" data-icon="apps">apps</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold">Apps</span>
+        </a>
+        <a class="flex flex-col items-center justify-center text-[#adaaab] p-3 hover:text-[#a1faff] transition-all active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined mb-1" data-icon="cast">cast</span>
+            <span class="font-['Inter'] text-[10px] uppercase tracking-[0.1rem] font-bold">Cast</span>
+        </a>
+        <!-- Active Tab: Settings -->
+        <a class="flex flex-col items-center justify-center bg-gradient-to-br from-[#a1faff] to-[#00f4fe] text-[#0e0e0f] rounded-full p-3 shadow-[0_0_15px_rgba(161,250,255,0.5)] active:scale-90 duration-300 ease-out"
+            href="#">
+            <span class="material-symbols-outlined active-icon" data-icon="settings">settings</span>
+            <span class="hidden">Settings</span>
+        </a>
+    </nav>
+</body>
+
+</html>
