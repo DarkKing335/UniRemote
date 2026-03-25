@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,13 +27,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.DeepBtnBg
 import com.example.uniremote.ui.theme.GlassBtnBg
 import com.example.uniremote.ui.theme.GlassBtnBorder
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun MouseCursorLayout() {
+fun MouseCursorLayout(vm: RemoteViewModel? = null) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -49,11 +52,9 @@ fun MouseCursorLayout() {
                 .border(1.dp, GlassBtnBorder, RoundedCornerShape(6.dp))
         ) {
             // Refresh
-            NavIconBtn(icon = Icons.Filled.Refresh,                      modifier = Modifier.weight(1f).fillMaxHeight())
-            // Back
-            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack,        modifier = Modifier.weight(1f).fillMaxHeight())
-            // Forward
-            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowForward,     modifier = Modifier.weight(1f).fillMaxHeight())
+            NavIconBtn(icon = Icons.Filled.Refresh,                      modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.OK) })
+            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack,        modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.BACK) })
+            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowForward,     modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.OK) })
 
             // Vertical divider
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(GlassBtnBorder))
@@ -92,7 +93,12 @@ fun MouseCursorLayout() {
                     .background(Color.Black.copy(alpha = 0.82f))
                     .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(4.dp))
                     .pointerInput(Unit) {
-                        detectDragGestures { _, _ -> /* TODO: send pointer delta to TV */ }
+                        detectDragGestures(onDrag = { _, dragAmount ->
+                            vm?.moveMouse(dragAmount.x, dragAmount.y)
+                        })
+                    }
+                    .pointerInput(Unit) {
+                        detectTapGestures(onTap = { vm?.tapMouse() })
                     }
             )
 
@@ -112,7 +118,8 @@ fun MouseCursorLayout() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp),
+                        .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp,
+                            onClick = { vm?.sendKey(TvKey.VOL_UP) }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -137,7 +144,8 @@ fun MouseCursorLayout() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp),
+                        .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp,
+                            onClick = { vm?.sendKey(TvKey.VOL_DOWN) }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -153,10 +161,10 @@ fun MouseCursorLayout() {
 }
 
 @Composable
-private fun NavIconBtn(icon: ImageVector, modifier: Modifier) {
+private fun NavIconBtn(icon: ImageVector, modifier: Modifier, onClick: () -> Unit = {}) {
     Box(
         modifier = modifier
-            .remotePressable(shape = RoundedCornerShape(4.dp)),
+            .remotePressable(shape = RoundedCornerShape(4.dp), onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(

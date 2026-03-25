@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -27,12 +28,14 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.CyanText
 import com.example.uniremote.ui.theme.PowerGlow
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun DPadTouchpadLayout() {
+fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -68,7 +71,8 @@ fun DPadTouchpadLayout() {
                     .clip(CircleShape)
                     .background(PowerGlow.copy(alpha = 0.15f))
                     .border(1.dp, PowerGlow.copy(alpha = 0.35f), CircleShape)
-                    .remotePressable(shape = CircleShape, raisedElevation = 8.dp, pressedElevation = 1.dp),
+                    .remotePressable(shape = CircleShape, raisedElevation = 8.dp, pressedElevation = 1.dp,
+                        onClick = { vm?.power() }),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -91,7 +95,14 @@ fun DPadTouchpadLayout() {
                 .background(Color.White.copy(alpha = 0.03f))
                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
                 .pointerInput(Unit) {
-                    detectDragGestures { _, _ -> /* TODO: send pointer delta */ }
+                    detectDragGestures(
+                        onDrag = { _, dragAmount ->
+                            vm?.moveMouse(dragAmount.x, dragAmount.y)
+                        }
+                    )
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { vm?.tapMouse() })
                 }
         ) {
             // Dashed crosshair lines
@@ -128,15 +139,13 @@ fun DPadTouchpadLayout() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            FooterButton(label = "BACK", color = CyanText)
-
-            // DISCOVER with up-arrow above
+            FooterButton(label = "BACK", color = CyanText, onClick = { vm?.sendKey(TvKey.BACK) })
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = {}
+                    onClick = { vm?.sendKey(TvKey.MENU) }
                 )
             ) {
                 Icon(
@@ -153,14 +162,13 @@ fun DPadTouchpadLayout() {
                     letterSpacing = 0.5.sp
                 )
             }
-
-            FooterButton(label = "HOME", color = CyanText)
+            FooterButton(label = "HOME", color = CyanText, onClick = { vm?.sendKey(TvKey.HOME) })
         }
     }
 }
 
 @Composable
-private fun FooterButton(label: String, color: Color) {
+private fun FooterButton(label: String, color: Color, onClick: () -> Unit = {}) {
     Text(
         text = label,
         color = color,
@@ -170,7 +178,7 @@ private fun FooterButton(label: String, color: Color) {
         modifier = Modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = null,
-            onClick = {}
+            onClick = onClick
         )
     )
 }

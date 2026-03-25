@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -34,7 +34,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 @Composable
-fun PremiumDPad(modifier: Modifier = Modifier) {
+fun PremiumDPad(
+    modifier: Modifier = Modifier,
+    onUp:    () -> Unit = {},
+    onDown:  () -> Unit = {},
+    onLeft:  () -> Unit = {},
+    onRight: () -> Unit = {},
+    onOk:    () -> Unit = {}
+) {
     val orangeLight = Color(0xFFFF6A2A)
     val orangeDark = Color(0xFFD94A18)
     val rimColor = Color(0xFF141414) // Màu của rãnh chữ X và nền viền giữa
@@ -58,55 +65,31 @@ fun PremiumDPad(modifier: Modifier = Modifier) {
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(gap)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    // Góc top-left sau khi xoay sẽ nằm bên TRÁI
                     DirectionKey(
-                        shape = RoundedCornerShape(
-                            topStart = outerCorner, topEnd = innerCorner,
-                            bottomStart = innerCorner, bottomEnd = innerCorner
-                        ),
-                        icon = Icons.Rounded.KeyboardArrowLeft,
-                        iconRotation = 45f,
-                        iconOffsetX = -iconInset, iconOffsetY = -iconInset,
-                        size = buttonSize,
-                        lightColor = orangeLight, darkColor = orangeDark
+                        shape = RoundedCornerShape(topStart = outerCorner, topEnd = innerCorner, bottomStart = innerCorner, bottomEnd = innerCorner),
+                        icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft, iconRotation = 45f,
+                        iconOffsetX = -iconInset, iconOffsetY = -iconInset, size = buttonSize,
+                        lightColor = orangeLight, darkColor = orangeDark, onClick = onLeft
                     )
-                    // Góc top-right sau khi xoay sẽ nằm bên TRÊN
                     DirectionKey(
-                        shape = RoundedCornerShape(
-                            topStart = innerCorner, topEnd = outerCorner,
-                            bottomStart = innerCorner, bottomEnd = innerCorner
-                        ),
-                        icon = Icons.Rounded.KeyboardArrowUp,
-                        iconRotation = 45f,
-                        iconOffsetX = iconInset, iconOffsetY = -iconInset,
-                        size = buttonSize,
-                        lightColor = orangeLight, darkColor = orangeDark
+                        shape = RoundedCornerShape(topStart = innerCorner, topEnd = outerCorner, bottomStart = innerCorner, bottomEnd = innerCorner),
+                        icon = Icons.Rounded.KeyboardArrowUp, iconRotation = 45f,
+                        iconOffsetX = iconInset, iconOffsetY = -iconInset, size = buttonSize,
+                        lightColor = orangeLight, darkColor = orangeDark, onClick = onUp
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
-                    // Góc bottom-left sau khi xoay sẽ nằm bên DƯỚI
                     DirectionKey(
-                        shape = RoundedCornerShape(
-                            topStart = innerCorner, topEnd = innerCorner,
-                            bottomStart = outerCorner, bottomEnd = innerCorner
-                        ),
-                        icon = Icons.Rounded.KeyboardArrowDown,
-                        iconRotation = 45f,
-                        iconOffsetX = -iconInset, iconOffsetY = iconInset,
-                        size = buttonSize,
-                        lightColor = orangeLight, darkColor = orangeDark
+                        shape = RoundedCornerShape(topStart = innerCorner, topEnd = innerCorner, bottomStart = outerCorner, bottomEnd = innerCorner),
+                        icon = Icons.Rounded.KeyboardArrowDown, iconRotation = 45f,
+                        iconOffsetX = -iconInset, iconOffsetY = iconInset, size = buttonSize,
+                        lightColor = orangeLight, darkColor = orangeDark, onClick = onDown
                     )
-                    // Góc bottom-right sau khi xoay sẽ nằm bên PHẢI
                     DirectionKey(
-                        shape = RoundedCornerShape(
-                            topStart = innerCorner, topEnd = innerCorner,
-                            bottomStart = innerCorner, bottomEnd = outerCorner
-                        ),
-                        icon = Icons.Rounded.KeyboardArrowRight,
-                        iconRotation = 45f,
-                        iconOffsetX = iconInset, iconOffsetY = iconInset,
-                        size = buttonSize,
-                        lightColor = orangeLight, darkColor = orangeDark
+                        shape = RoundedCornerShape(topStart = innerCorner, topEnd = innerCorner, bottomStart = innerCorner, bottomEnd = outerCorner),
+                        icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight, iconRotation = 45f,
+                        iconOffsetX = iconInset, iconOffsetY = iconInset, size = buttonSize,
+                        lightColor = orangeLight, darkColor = orangeDark, onClick = onRight
                     )
                 }
             }
@@ -125,23 +108,13 @@ fun PremiumDPad(modifier: Modifier = Modifier) {
                     .size(78.dp)
                     .shadow(8.dp, CircleShape, spotColor = Color.Black)
                     .clip(CircleShape)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color(0xFFFF7A45), orangeDark)
-                        )
-                    )
+                    .background(Brush.verticalGradient(listOf(Color(0xFFFF7A45), orangeDark)))
                     .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
-                    // Nhớ thay bằng modifier .remotePressable của bạn nhé
-                    .clickable { },
+                    .clickable(onClick = onOk),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "OK",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
+                Text(text = "OK", color = Color.White, fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
             }
         }
     }
@@ -156,7 +129,8 @@ private fun DirectionKey(
     iconOffsetY: Dp,
     size: Dp,
     lightColor: Color,
-    darkColor: Color
+    darkColor: Color,
+    onClick: () -> Unit = {}
 ) {
     Box(
         modifier = Modifier
@@ -169,8 +143,7 @@ private fun DirectionKey(
                 )
             )
             .border(1.dp, Color.White.copy(alpha = 0.15f), shape)
-            // Nhớ thay bằng modifier .remotePressable của bạn ở đây
-            .clickable { },
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Icon(

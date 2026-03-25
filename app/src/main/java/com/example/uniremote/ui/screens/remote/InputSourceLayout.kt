@@ -20,47 +20,49 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.remotePressable
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 private data class InputSource(
     val name: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val key: TvKey
 )
 
 private val inputSources = listOf(
-    InputSource("TV",         Icons.Filled.Tv),
-    InputSource("HDMI 1",     Icons.Filled.Cable),
-    InputSource("HDMI 2",     Icons.Filled.Cable),
-    InputSource("HDMI 3/ARC", Icons.Filled.Cable),
-    InputSource("HDMI 4",     Icons.Filled.Cable),
-    InputSource("USB",        Icons.Filled.Usb),
-    InputSource("Video",      Icons.Filled.Videocam),
-    InputSource("PC",         Icons.Filled.Computer),
+    InputSource("TV",         Icons.Filled.Tv,       TvKey.SOURCE),
+    InputSource("HDMI 1",     Icons.Filled.Cable,    TvKey.HDMI_1),
+    InputSource("HDMI 2",     Icons.Filled.Cable,    TvKey.HDMI_2),
+    InputSource("HDMI 3/ARC", Icons.Filled.Cable,    TvKey.HDMI_3),
+    InputSource("HDMI 4",     Icons.Filled.Cable,    TvKey.HDMI_4),
+    InputSource("USB",        Icons.Filled.Usb,      TvKey.SOURCE),
+    InputSource("Video",      Icons.Filled.Videocam, TvKey.AV),
+    InputSource("PC",         Icons.Filled.Computer, TvKey.HDMI_1),
 )
 
 @Composable
-fun InputSourceLayout() {
+fun InputSourceLayout(vm: RemoteViewModel? = null) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
         items(inputSources) { source ->
-            InputSourceRow(source)
+            InputSourceRow(source, onTap = { vm?.sendKey(source.key) })
             HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 1.dp)
         }
     }
 }
 
 @Composable
-private fun InputSourceRow(source: InputSource) {
+private fun InputSourceRow(source: InputSource, onTap: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .remotePressable(shape = RoundedCornerShape(6.dp), raisedElevation = 6.dp, pressedElevation = 1.dp)
+            .remotePressable(shape = RoundedCornerShape(6.dp), raisedElevation = 6.dp, pressedElevation = 1.dp, onClick = onTap)
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Thumbnail box (giống ảnh – nền xám sáng, icon bên trong)
         Box(
             modifier = Modifier
                 .size(width = 90.dp, height = 72.dp)

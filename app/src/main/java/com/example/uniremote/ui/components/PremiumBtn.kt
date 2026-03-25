@@ -37,7 +37,8 @@ fun PremiumBtn(
     borderColor: Color = GlassBtnBorder,
     glow: Color = Color.Transparent,
     shape: Shape = RoundedCornerShape(10.dp),
-    fontSize: TextUnit = 11.sp
+    fontSize: TextUnit = 11.sp,
+    onClick: () -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -54,7 +55,7 @@ fun PremiumBtn(
             )
             .border(1.dp, Color.White.copy(alpha = 0.10f), shape)
             .border(1.dp, borderColor.copy(alpha = 0.75f), shape)
-            .remotePressable(shape = shape),
+            .remotePressable(shape = shape, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Box(
