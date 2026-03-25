@@ -195,4 +195,48 @@ class AppPreferences(private val context: Context) {
             UserMacro(id = parts[0], name = parts[1], description = parts[2], icon = parts[3], keys = keys)
         }
     }
+
+    // ── Default macro seeding ─────────────────────────────────────────────────
+
+    private val KEY_DEFAULTS_SEEDED = booleanPreferencesKey("defaults_seeded")
+
+    /**
+     * Inserts 4 factory macros the very first time the app runs.
+     * Safe to call every launch – no-op after first seed thanks to the flag.
+     */
+    suspend fun seedDefaultMacros() {
+        val alreadySeeded = context.dataStore.data.first()[KEY_DEFAULTS_SEEDED] == true
+        if (alreadySeeded) return
+
+        val defaults = listOf(
+            UserMacro(
+                id = "default_movie_night", name = "Movie Night",
+                description = "Home → Netflix → Play", icon = "nightlight",
+                keys = listOf(TvKey.HOME, TvKey.NETFLIX, TvKey.OK)
+            ),
+            UserMacro(
+                id = "default_gaming", name = "Gaming Mode",
+                description = "HDMI 2 → Mute → OK", icon = "game",
+                keys = listOf(TvKey.HDMI_2, TvKey.MUTE, TvKey.OK)
+            ),
+            UserMacro(
+                id = "default_evening", name = "Evening Chill",
+                description = "Home → YouTube → OK", icon = "play",
+                keys = listOf(TvKey.HOME, TvKey.YOUTUBE, TvKey.OK)
+            ),
+            UserMacro(
+                id = "default_night", name = "Night Cycle",
+                description = "Mute → Vol down → Power", icon = "bedtime",
+                keys = listOf(TvKey.MUTE, TvKey.VOL_DOWN, TvKey.VOL_DOWN, TvKey.VOL_DOWN,
+                               TvKey.VOL_DOWN, TvKey.VOL_DOWN, TvKey.POWER)
+            )
+        )
+
+        context.dataStore.edit { prefs ->
+            if (deserializeMacros(prefs[KEY_USER_MACROS] ?: "").isEmpty()) {
+                prefs[KEY_USER_MACROS] = serializeMacros(defaults)
+            }
+            prefs[KEY_DEFAULTS_SEEDED] = true
+        }
+    }
 }

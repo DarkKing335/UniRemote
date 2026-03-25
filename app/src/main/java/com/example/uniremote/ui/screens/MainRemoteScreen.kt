@@ -47,10 +47,10 @@ private data class RemoteTab(
 )
 
 private val remoteTabs = listOf(
-    RemoteTab(Icons.Filled.GridView,      "Remote"),
-    RemoteTab(Icons.Filled.Games,         "D-Pad"),
-    RemoteTab(Icons.Filled.NearMe,        "TouchPad"),
-    RemoteTab(Icons.Filled.Keyboard,      "Keyboard")
+    RemoteTab(Icons.Filled.GridView,  "Remote"),
+    RemoteTab(Icons.Filled.Games,     "D-Pad"),
+    RemoteTab(Icons.Filled.NearMe,    "TouchPad"),
+    RemoteTab(Icons.Filled.Keyboard,  "Keyboard")   // guard inside KeyboardLayout
 )
 
 // ── Screen ──────────────────────────────────────────────────────────────────

@@ -48,12 +48,12 @@ fun MediaPlaybackLayout(vm: RemoteViewModel? = null) {
             PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight),   icon = Icons.Filled.FastForward,shape = btnShape, onClick = { vm?.sendKey(TvKey.FF)     })
         }
 
-        // Row 4 – Globe | Subtitle | AUDIO | Info
+        // Row 4 – Language | Subtitle | AUDIO | Sleep
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
-            PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight), icon = Icons.Filled.Language,  shape = btnShape, onClick = { vm?.sendKey(TvKey.SOURCE) })
-            PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight), icon = Icons.Filled.Subtitles, shape = btnShape, onClick = { vm?.sendKey(TvKey.INFO)   })
+            PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight), icon = Icons.Filled.Language,   shape = btnShape, onClick = { vm?.sendKey(TvKey.SOURCE)   })
+            PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight), icon = Icons.Filled.Subtitles,  shape = btnShape, onClick = { vm?.sendKey(TvKey.GUIDE)    })
             PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight), text = "AUDIO", fontSize = 11.sp, shape = btnShape, onClick = { vm?.sendKey(TvKey.SETTINGS) })
-            PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight), icon = Icons.Filled.Info, shape = btnShape, onClick = { vm?.sendKey(TvKey.INFO) })
+            PremiumBtn(modifier = Modifier.weight(1f).height(rowHeight), icon = Icons.Filled.Bedtime, shape = btnShape, onClick = { vm?.sendKey(TvKey.SLEEP)   })
         }
 
         // Row 5 – SYNC MENU | FOOTBALL | HELP

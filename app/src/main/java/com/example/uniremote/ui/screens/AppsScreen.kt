@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.uniremote.R
+import com.example.uniremote.data.UserMacro
 import com.example.uniremote.network.TvAppUiModel
 import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.BottomNavBar
@@ -46,18 +47,26 @@ import com.example.uniremote.viewmodel.RemoteViewModel
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
-    val apps       by vm.installedApps.collectAsState()
-    val isLoading  by vm.isLoadingApps.collectAsState()
-    val status     by vm.connectionStatus.collectAsState()
-    val isConnected = status is ConnectionStatus.Connected
+    val apps        by vm.installedApps.collectAsState()
+    val isLoading   by vm.isLoadingApps.collectAsState()
+    val status      by vm.connectionStatus.collectAsState()
+    val userMacros  by vm.userMacros.collectAsState()
+    val isConnected  = status is ConnectionStatus.Connected
+    val snackbarHost = remember { SnackbarHostState() }
+
+    LaunchedEffect(status) {
+        if (status is ConnectionStatus.Error) {
+            snackbarHost.showSnackbar(
+                message  = (status as ConnectionStatus.Error).message,
+                duration = SnackbarDuration.Short
+            )
+        }
+    }
 
     Scaffold(
-        topBar = {
-            TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() })
-        },
-        bottomBar = {
-            BottomNavBar(currentTab = NavigationTab.APPS, onTabSelected = onNavigate)
-        },
+        topBar    = { TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() }) },
+        bottomBar = { BottomNavBar(currentTab = NavigationTab.APPS, onTabSelected = onNavigate) },
+        snackbarHost  = { SnackbarHost(snackbarHost) },
         containerColor = Color.Transparent
     ) { paddingValues ->
         Box(
@@ -73,7 +82,6 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     .padding(horizontal = 24.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(48.dp)
             ) {
-                // ── Quick Launch App Grid ──────────────────────────────────
                 QuickLaunchSection(
                     isLoading   = isLoading,
                     isConnected = isConnected,
@@ -81,10 +89,10 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     onSync      = { vm.loadInstalledApps() },
                     onLaunch    = { appId -> vm.launchApp(appId) }
                 )
-
-                // ── Custom Macros ─────────────────────────────────────────
-                CustomMacrosSection(vm = vm)
-
+                CustomMacrosSection(
+                    macros = userMacros,
+                    onRun  = { vm.runUserMacro(it) }
+                )
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -405,79 +413,47 @@ fun AppButton(modifier: Modifier, icon: ImageVector, color: Color, label: String
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Custom Macros – wired to vm.runMacro()
+// Custom Macros – reads real UserMacro list from DataStore via ViewModel
 // ─────────────────────────────────────────────────────────────────────────────
 
-private data class MacroDef(
-    val title: String,
-    val desc: String,
-    val icon: ImageVector,
-    val color: @Composable () -> Color,
-    val keys: List<TvKey>
-)
-
 @Composable
-fun CustomMacrosSection(vm: RemoteViewModel) {
-    val macros = listOf(
-        MacroDef(
-            title = "Movie Night",
-            desc  = "Home → Netflix → Play",
-            icon  = Icons.Filled.Nightlight,
-            color = { MaterialTheme.colorScheme.primary },
-            keys  = listOf(TvKey.HOME, TvKey.NETFLIX, TvKey.OK)
-        ),
-        MacroDef(
-            title = "Gaming Mode",
-            desc  = "HDMI 2 → Mute → Play",
-            icon  = Icons.Filled.VideogameAsset,
-            color = { MaterialTheme.colorScheme.error },
-            keys  = listOf(TvKey.HDMI_2, TvKey.MUTE, TvKey.OK)
-        ),
-        MacroDef(
-            title = "Evening Chill",
-            desc  = "Home → YouTube → OK",
-            icon  = Icons.Filled.FilterVintage,
-            color = { primary_fixed_dim },
-            keys  = listOf(TvKey.HOME, TvKey.YOUTUBE, TvKey.OK)
-        ),
-        MacroDef(
-            title = "Night Cycle",
-            desc  = "Mute → Volume 0 → Power",
-            icon  = Icons.Filled.Bedtime,
-            color = { MaterialTheme.colorScheme.onSurfaceVariant },
-            keys  = listOf(TvKey.MUTE, TvKey.VOL_DOWN, TvKey.VOL_DOWN,
-                           TvKey.VOL_DOWN, TvKey.VOL_DOWN, TvKey.VOL_DOWN, TvKey.POWER)
-        )
-    )
-
+fun CustomMacrosSection(
+    macros: List<UserMacro>,
+    onRun:  (String) -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column {
-            Text(
-                text = "AUTOMATION",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                letterSpacing = 2.sp,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-            Text(
-                text = "Custom Macros",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Text("AUTOMATION", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.5f), letterSpacing = 2.sp, modifier = Modifier.padding(bottom = 4.dp))
+            Text("Custom Macros", style = MaterialTheme.typography.headlineLarge, color = Color.White)
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            macros.chunked(2).forEach { row ->
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    row.forEach { macro ->
-                        MacroCard(
-                            modifier = Modifier.weight(1f),
-                            title    = macro.title,
-                            desc     = macro.desc,
-                            icon     = macro.icon,
-                            color    = macro.color(),
-                            onRun    = { vm.runMacro(macro.keys) }
-                        )
+        if (macros.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp)).background(GlassBtnBg)
+                    .border(1.dp, GlassBtnBorder, RoundedCornerShape(20.dp)).padding(28.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Filled.Bolt, null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(32.dp))
+                    Text("Chưa có macro nào", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.4f))
+                    Text("Thêm macro từ mục Cài đặt", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.25f))
+                }
+            }
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                macros.chunked(2).forEach { row ->
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        row.forEach { macro ->
+                            MacroCard(
+                                modifier = Modifier.weight(1f),
+                                title    = macro.name,
+                                desc     = macro.description.ifBlank { "${macro.keys.size} phím" },
+                                icon     = Icons.Filled.Bolt,   // resolved at call-site from macro.icon via iconForName
+                                color    = MaterialTheme.colorScheme.primary,
+                                onRun    = { onRun(macro.id) }
+            )}
+                        if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -534,9 +510,9 @@ fun MacroCard(
                 Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(24.dp))
             }
             Column {
-                Text(text = title, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                Text(text = title, style = MaterialTheme.typography.titleLarge, color = Color.White)
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(text = desc, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 16.sp)
+                Text(text = desc, style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.55f), lineHeight = 16.sp)
             }
         }
 

@@ -6,6 +6,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -95,11 +96,11 @@ class SamsungTvController(override val device: TvDevice) : TvController {
         val deferred = CompletableDeferred<Boolean>()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, response: Response) {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
                 connected = true
                 deferred.complete(true)
             }
-            override fun onMessage(ws: WebSocket, text: String) {
+            override fun onMessage(webSocket: WebSocket, text: String) {
                 // Handle auth challenge if TV requires pairing
                 val json = runCatching { JSONObject(text) }.getOrNull() ?: return
                 val event = json.optString("event")
@@ -110,11 +111,11 @@ class SamsungTvController(override val device: TvDevice) : TvController {
                     if (!deferred.isCompleted) deferred.complete(false)
                 }
             }
-            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 connected = false
                 if (!deferred.isCompleted) deferred.complete(false)
             }
-            override fun onClosed(ws: WebSocket, code: Int, reason: String) {
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 connected = false
             }
         })
@@ -178,9 +179,21 @@ class SamsungTvController(override val device: TvDevice) : TvController {
     override suspend fun launchApp(appId: String): Unit = withContext(Dispatchers.IO) {
         runCatching {
             val url = "http://${device.ip}:${device.port}/api/v2/applications/$appId"
-            val body = RequestBody.create(null, ByteArray(0))
+            val body = ByteArray(0).toRequestBody()
             val request = Request.Builder().url(url).post(body).build()
             client.newCall(request).execute().close()
         }
+    }
+
+    /**
+     * Samsung Tizen WebSocket does not support mouse pointer control.
+     * Throws UnsupportedOperationException so the ViewModel can surface a user-facing message.
+     */
+    override suspend fun moveMouse(dx: Float, dy: Float) {
+        throw UnsupportedOperationException("Samsung TV không hỗ trợ điều khiển chuột. Dùng tab D-Pad để điều hướng.")
+    }
+
+    override suspend fun tapMouse() {
+        throw UnsupportedOperationException("Samsung TV không hỗ trợ điều khiển chuột. Dùng tab D-Pad để điều hướng.")
     }
 }
