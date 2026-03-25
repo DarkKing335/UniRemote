@@ -12,11 +12,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.viewmodel.ConnectionStatus
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun KeyboardLayout() {
+fun KeyboardLayout(vm: RemoteViewModel? = null) {
     var inputText by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
+    val status by (vm?.connectionStatus ?: return).collectAsState()
+    val isConnected = status is ConnectionStatus.Connected
 
     // ── Dialog: TV không hiển thị màn hình nhập ─────────────────────────
     if (showDialog) {
@@ -73,7 +77,14 @@ fun KeyboardLayout() {
 
         // Nút Gửi
         Button(
-            onClick = { showDialog = true },   // TODO: thay bằng logic kiểm tra TV
+            onClick = {
+                if (isConnected && inputText.isNotBlank()) {
+                    vm.sendText(inputText)
+                    inputText = ""
+                } else {
+                    showDialog = true
+                }
+            },
             modifier = Modifier
                 .width(260.dp)
                 .height(56.dp),

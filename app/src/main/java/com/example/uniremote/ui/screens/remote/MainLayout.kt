@@ -2,6 +2,7 @@ package com.example.uniremote.ui.screens.remote
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,14 +28,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.PremiumBtn
 import com.example.uniremote.ui.components.PremiumDPad
 import com.example.uniremote.ui.components.remote.FadingStrip
 import com.example.uniremote.ui.components.remote.SlidingActionButtonStrip
 import com.example.uniremote.ui.theme.*
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun MainLayout(pageAlpha: Float = 1f) {
+fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
     val actionStripState = rememberLazyListState()
     Box(
         modifier = Modifier
@@ -110,16 +113,18 @@ fun MainLayout(pageAlpha: Float = 1f) {
                     modifier = Modifier.size(60.dp),
                     icon = Icons.AutoMirrored.Filled.Input,
                     shape = CircleShape,
-                    bg = DeepBtnBg
+                    bg = DeepBtnBg,
+                    onClick = { vm?.sendKey(TvKey.SOURCE) }
                 )
                 PremiumBtn(
                     modifier = Modifier.size(88.dp),
                     icon = MicIcon,
                     shape = CircleShape,
                     bg = GlassBtnBg,
-                    glow = CyanText.copy(alpha = 0.25f)
+                    glow = CyanText.copy(alpha = 0.25f),
+                    onClick = { vm?.sendKey(TvKey.SEARCH) }
                 )
-                PowerCircleButton(modifier = Modifier.size(66.dp))
+                PowerCircleButton(modifier = Modifier.size(66.dp), onClick = { vm?.power() })
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -137,7 +142,8 @@ fun MainLayout(pageAlpha: Float = 1f) {
                         .height(46.dp),
                     icon = Icons.Filled.Explore,
                     shape = RoundedCornerShape(14.dp),
-                    bg = Color(0xFF222B37)
+                    bg = Color(0xFF222B37),
+                    onClick = { vm?.sendKey(TvKey.MENU) }
                 )
                 PremiumBtn(
                     modifier = Modifier
@@ -146,7 +152,8 @@ fun MainLayout(pageAlpha: Float = 1f) {
                         .height(46.dp),
                     icon = Icons.Filled.Tv,
                     shape = RoundedCornerShape(14.dp),
-                    bg = Color(0xFF222B37)
+                    bg = Color(0xFF222B37),
+                    onClick = { vm?.sendKey(TvKey.INFO) }
                 )
                 PremiumBtn(
                     modifier = Modifier
@@ -156,7 +163,8 @@ fun MainLayout(pageAlpha: Float = 1f) {
                     icon = Icons.AutoMirrored.Filled.ArrowBack,
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
-                    tint = CyanText
+                    tint = CyanText,
+                    onClick = { vm?.sendKey(TvKey.BACK) }
                 )
                 PremiumBtn(
                     modifier = Modifier
@@ -166,14 +174,20 @@ fun MainLayout(pageAlpha: Float = 1f) {
                     icon = Icons.Filled.Home,
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
-                    tint = CyanText
+                    tint = CyanText,
+                    onClick = { vm?.sendKey(TvKey.HOME) }
                 )
 
                 PremiumDPad(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxHeight(0.83f)
-                        .aspectRatio(1f)
+                        .aspectRatio(1f),
+                    onUp    = { vm?.sendKey(TvKey.UP)    },
+                    onDown  = { vm?.sendKey(TvKey.DOWN)  },
+                    onLeft  = { vm?.sendKey(TvKey.LEFT)  },
+                    onRight = { vm?.sendKey(TvKey.RIGHT) },
+                    onOk    = { vm?.sendKey(TvKey.OK)    }
                 )
             }
 
@@ -192,16 +206,21 @@ fun MainLayout(pageAlpha: Float = 1f) {
                         .fillMaxHeight(),
                     icon = Icons.Filled.VolumeOff,
                     bg = Color(0xFF1E2631),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    onClick = { vm?.mute() }
                 )
 
                 ControlPair(
                     modifier = Modifier.weight(1f),
-                    title = "VOL"
+                    title = "VOL",
+                    onMinus = { vm?.volumeDown() },
+                    onPlus  = { vm?.volumeUp() }
                 )
                 ControlPair(
                     modifier = Modifier.weight(1f),
-                    title = "PROG"
+                    title = "PROG",
+                    onMinus = { vm?.channelDown() },
+                    onPlus  = { vm?.channelUp() }
                 )
             }
 
@@ -217,7 +236,9 @@ fun MainLayout(pageAlpha: Float = 1f) {
 @Composable
 private fun ControlPair(
     modifier: Modifier = Modifier,
-    title: String
+    title: String,
+    onMinus: () -> Unit = {},
+    onPlus:  () -> Unit = {}
 ) {
     Column(
         modifier = modifier,
@@ -245,7 +266,8 @@ private fun ControlPair(
                 text = "-",
                 bg = Color(0xFF1E2631),
                 fontSize = 22.sp,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                onClick = onMinus
             )
             PremiumBtn(
                 modifier = Modifier
@@ -254,14 +276,15 @@ private fun ControlPair(
                 text = "+",
                 bg = Color(0xFF1E2631),
                 fontSize = 22.sp,
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(12.dp),
+                onClick = onPlus
             )
         }
     }
 }
 
 @Composable
-private fun PowerCircleButton(modifier: Modifier = Modifier) {
+private fun PowerCircleButton(modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
     Box(
         modifier = modifier
             .shadow(16.dp, CircleShape, spotColor = Color(0xAA00FF73))
@@ -278,7 +301,10 @@ private fun PowerCircleButton(modifier: Modifier = Modifier) {
             )
             .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
             .border(1.dp, Color.Black.copy(alpha = 0.25f), CircleShape)
-            .padding(2.dp),
+            .padding(2.dp)
+            .then(
+                Modifier.clickable(onClick = onClick)
+            ),
         contentAlignment = Alignment.Center
     ) {
         Box(

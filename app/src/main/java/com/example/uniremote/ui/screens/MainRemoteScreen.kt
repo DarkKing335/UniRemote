@@ -33,6 +33,7 @@ import com.example.uniremote.ui.screens.remote.MediaPlaybackLayout
 import com.example.uniremote.ui.screens.remote.NumpadLayout
 import com.example.uniremote.ui.theme.PremiumBgEnd
 import com.example.uniremote.ui.theme.PremiumBgStart
+import com.example.uniremote.viewmodel.RemoteViewModel
 import kotlin.math.abs
 
 // ── Top-level tab definition ────────────────────────────────────────────────
@@ -51,11 +52,11 @@ private val remoteTabs = listOf(
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 @Composable
-fun MainRemoteScreen(onNavigate: (NavigationTab) -> Unit) {
+fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     var selectedRemoteTab by rememberSaveable { mutableStateOf(0) }
 
     Scaffold(
-        topBar = { TopBar(title = "DIGITAL PILOT", onPowerClick = {}) },
+        topBar = { TopBar(title = "DIGITAL PILOT", onPowerClick = { vm.power() }) },
         bottomBar = { BottomNavBar(currentTab = NavigationTab.REMOTE, onTabSelected = onNavigate) },
         containerColor = Color.Transparent
     ) { paddingValues ->
@@ -78,10 +79,10 @@ fun MainRemoteScreen(onNavigate: (NavigationTab) -> Unit) {
             // ── Content ───────────────────────────────────────────────────
             Box(modifier = Modifier.fillMaxSize()) {
                 when (selectedRemoteTab) {
-                    0 -> RemoteVerticalPagerContent()
-                    1 -> DPadTouchpadLayout()               // Tab 2 – D-Pad touchpad
-                    2 -> MouseCursorLayout()               // Tab 3 – Mouse cursor
-                    3 -> KeyboardLayout()                  // Tab 4 – Bàn phím
+                    0 -> RemoteVerticalPagerContent(vm)
+                    1 -> DPadTouchpadLayout(vm)
+                    2 -> MouseCursorLayout(vm)
+                    3 -> KeyboardLayout(vm)
                 }
             }
         }
@@ -145,7 +146,7 @@ private fun RemoteTopTabBar(
 
 // ── Tab 1 content: VerticalPager with 4 pages ───────────────────────────────
 @Composable
-private fun RemoteVerticalPagerContent() {
+private fun RemoteVerticalPagerContent(vm: RemoteViewModel) {
     val pagerState = rememberPagerState(pageCount = { 4 })
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -157,10 +158,10 @@ private fun RemoteVerticalPagerContent() {
             val pageAlpha = (1f - pageOffset).coerceIn(0f, 1f)
 
             when (page) {
-                0 -> MainLayout(pageAlpha)
-                1 -> NumpadLayout(pageAlpha)
-                2 -> MediaPlaybackLayout()
-                3 -> InputSourceLayout()
+                0 -> MainLayout(pageAlpha, vm)
+                1 -> NumpadLayout(pageAlpha, vm)
+                2 -> MediaPlaybackLayout(vm)
+                3 -> InputSourceLayout(vm)
             }
         }
 

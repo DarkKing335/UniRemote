@@ -14,26 +14,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.uniremote.ui.components.remotePressable
-import androidx.compose.ui.graphics.Color
+import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.remote.FadingStrip
 import com.example.uniremote.ui.components.remote.SlidingActionButtonStrip
 import com.example.uniremote.ui.components.remote.SlidingColorButtonStrip
+import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.DeepBtnBg
 import com.example.uniremote.ui.theme.GlassBtnBorder
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 private data class NumpadEntry(
     val text: String? = null,
-    val icon: ImageVector? = null
+    val icon: ImageVector? = null,
+    val key: TvKey? = null
 )
 
 @Composable
-private fun SegmentedNumpadRow(entries: List<NumpadEntry>) {
+private fun SegmentedNumpadRow(entries: List<NumpadEntry>, vm: RemoteViewModel?) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -48,7 +51,8 @@ private fun SegmentedNumpadRow(entries: List<NumpadEntry>) {
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .remotePressable(shape = RectangleShape, raisedElevation = 5.dp, pressedElevation = 1.dp),
+                    .remotePressable(shape = RectangleShape, raisedElevation = 5.dp, pressedElevation = 1.dp,
+                        onClick = { entry.key?.let { vm?.sendKey(it) } }),
                 contentAlignment = Alignment.Center
             ) {
                 if (entry.text != null) {
@@ -66,7 +70,7 @@ private fun SegmentedNumpadRow(entries: List<NumpadEntry>) {
 }
 
 @Composable
-fun NumpadLayout(pageAlpha: Float = 1f) {
+fun NumpadLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
     val actionStripState = rememberLazyListState()
     val colorStripState = rememberLazyListState()
     Column(
@@ -84,10 +88,26 @@ fun NumpadLayout(pageAlpha: Float = 1f) {
             contentAlignment = Alignment.Center
         ) {
             Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SegmentedNumpadRow(listOf(NumpadEntry("1"), NumpadEntry("2"), NumpadEntry("3")))
-                SegmentedNumpadRow(listOf(NumpadEntry("4"), NumpadEntry("5"), NumpadEntry("6")))
-                SegmentedNumpadRow(listOf(NumpadEntry("7"), NumpadEntry("8"), NumpadEntry("9")))
-                SegmentedNumpadRow(listOf(NumpadEntry(icon = Icons.Filled.Contrast), NumpadEntry("0"), NumpadEntry(icon = Icons.Filled.Menu)))
+                SegmentedNumpadRow(listOf(
+                    NumpadEntry("1", key = TvKey.NUM_1),
+                    NumpadEntry("2", key = TvKey.NUM_2),
+                    NumpadEntry("3", key = TvKey.NUM_3)
+                ), vm)
+                SegmentedNumpadRow(listOf(
+                    NumpadEntry("4", key = TvKey.NUM_4),
+                    NumpadEntry("5", key = TvKey.NUM_5),
+                    NumpadEntry("6", key = TvKey.NUM_6)
+                ), vm)
+                SegmentedNumpadRow(listOf(
+                    NumpadEntry("7", key = TvKey.NUM_7),
+                    NumpadEntry("8", key = TvKey.NUM_8),
+                    NumpadEntry("9", key = TvKey.NUM_9)
+                ), vm)
+                SegmentedNumpadRow(listOf(
+                    NumpadEntry(icon = Icons.Filled.Contrast, key = TvKey.ASPECT_RATIO),
+                    NumpadEntry("0", key = TvKey.NUM_0),
+                    NumpadEntry(icon = Icons.Filled.Menu, key = TvKey.MENU)
+                ), vm)
             }
         }
 
