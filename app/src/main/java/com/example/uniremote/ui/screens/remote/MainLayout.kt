@@ -2,7 +2,6 @@ package com.example.uniremote.ui.screens.remote
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -20,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -227,7 +225,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
             Spacer(modifier = Modifier.height(12.dp))
 
             FadingStrip(alpha = pageAlpha, placeholderHeight = 56.dp) {
-                SlidingActionButtonStrip(listState = actionStripState)
+                SlidingActionButtonStrip(listState = actionStripState, vm = vm)
             }
         }
     }

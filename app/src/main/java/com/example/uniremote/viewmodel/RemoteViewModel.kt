@@ -72,6 +72,16 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private val _isMirroring = MutableStateFlow(false)
     val isMirroring: StateFlow<Boolean> = _isMirroring.asStateFlow()
 
+    /**
+     * True when the TV is currently showing a text-input field.
+     * Set to true by TV controllers that can detect IME state (e.g. Android TV ADB).
+     * Defaults to false; user can manually toggle from KeyboardLayout.
+     */
+    private val _isTextInputActive = MutableStateFlow(false)
+    val isTextInputActive: StateFlow<Boolean> = _isTextInputActive.asStateFlow()
+
+    fun setTextInputActive(active: Boolean) { _isTextInputActive.value = active }
+
     val autoReconnect: Flow<Boolean> = prefs.autoReconnect
 
     /** User-defined macros persisted in DataStore. */
@@ -85,9 +95,10 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private var discoveryJob: Job? = null
     private var macroJob: Job? = null
 
-    // ── Init: startup delay + auto-connect ───────────────────────────────────
+    // ── Init: startup delay + auto-connect + seed defaults ─────────────────────
     init {
         viewModelScope.launch {
+            prefs.seedDefaultMacros()                      // ✅ insert 4 defaults if first run
             _currentSsid.value = WifiUtil.getCurrentSsid(application)
             val shouldReconnect = prefs.getAutoReconnectOnce()
             if (shouldReconnect) {
@@ -172,11 +183,11 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
             if (success) {
                 _connectionStatus.value = ConnectionStatus.Connected
-                repo.saveDevice(device)          // ✅ saves with current SSID
+                repo.saveDevice(device)
                 repo.markDeviceOnline(device.id)
                 loadInstalledApps()
             } else {
-                _connectionStatus.value = ConnectionStatus.Offline
+                _connectionStatus.value = ConnectionStatus.Error("Cannot reach ${device.name}. Check that the TV is on and reachable.")
                 repo.markDeviceOffline(device.id)
                 controller = null
             }
@@ -202,14 +213,21 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     fun sendKey(key: TvKey) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { controller?.sendKey(key) }
-                .onFailure { Log.e(TAG, "sendKey failed: ${it.message}") }
+                .onFailure {
+                    Log.e(TAG, "sendKey failed: ${it.message}")
+                    _connectionStatus.value = ConnectionStatus.Error("Remote key failed. TV may have disconnected.")
+                }
         }
     }
 
     fun sendText(text: String) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { controller?.sendText(text) }
-                .onFailure { Log.e(TAG, "sendText failed: ${it.message}") }
+                .onFailure {
+                    Log.e(TAG, "sendText failed: ${it.message}")
+                    _connectionStatus.value = ConnectionStatus.Error(
+                        it.message ?: "Không gửi được văn bản.")
+                }
         }
     }
 
@@ -219,19 +237,37 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 controller?.sendText(text)
                 delay(300)
                 controller?.sendKey(TvKey.OK)
-            }.onFailure { Log.e(TAG, "sendTextAndEnter failed: ${it.message}") }
+            }.onFailure {
+                Log.e(TAG, "sendTextAndEnter failed: ${it.message}")
+                _connectionStatus.value = ConnectionStatus.Error(
+                    it.message ?: "Không gửi được văn bản.")
+            }
         }
     }
 
     fun moveMouse(dx: Float, dy: Float) {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { controller?.moveMouse(dx, dy) }
+                .onFailure { e ->
+                    Log.e(TAG, "moveMouse failed: ${e.message}")
+                    if (e is UnsupportedOperationException) {
+                        _connectionStatus.value = ConnectionStatus.Error(
+                            e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
+                    }
+                }
         }
     }
 
     fun tapMouse() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { controller?.tapMouse() }
+                .onFailure { e ->
+                    Log.e(TAG, "tapMouse failed: ${e.message}")
+                    if (e is UnsupportedOperationException) {
+                        _connectionStatus.value = ConnectionStatus.Error(
+                            e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
+                    }
+                }
         }
     }
 

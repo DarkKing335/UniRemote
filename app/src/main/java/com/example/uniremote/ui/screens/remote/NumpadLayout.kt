@@ -80,7 +80,7 @@ fun NumpadLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         FadingStrip(alpha = pageAlpha, placeholderHeight = 56.dp) {
-            SlidingActionButtonStrip(listState = actionStripState)
+            SlidingActionButtonStrip(listState = actionStripState, vm = vm)
         }
 
         Box(

@@ -51,10 +51,10 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                 .background(DeepBtnBg)
                 .border(1.dp, GlassBtnBorder, RoundedCornerShape(6.dp))
         ) {
-            // Refresh
-            NavIconBtn(icon = Icons.Filled.Refresh,                      modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.OK) })
-            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack,        modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.BACK) })
-            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowForward,     modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.OK) })
+            // Refresh → sends OK (acts as confirm/refresh in browser)
+            NavIconBtn(icon = Icons.Filled.Refresh,                   modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.OK) })
+            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack,    modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.BACK) })
+            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowForward, modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.MENU) })
 
             // Vertical divider
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(GlassBtnBorder))
@@ -64,7 +64,7 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                 modifier = Modifier
                     .weight(1.2f)
                     .fillMaxHeight()
-                    .remotePressable(shape = RoundedCornerShape(4.dp)),
+                    .remotePressable(shape = RoundedCornerShape(4.dp), onClick = { vm?.sendKey(TvKey.MENU) }),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -119,15 +119,10 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                         .fillMaxWidth()
                         .weight(1f)
                         .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp,
-                            onClick = { vm?.sendKey(TvKey.VOL_UP) }),
+                            onClick = { vm?.sendKey(TvKey.UP) }),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Filled.KeyboardArrowUp,
-                        contentDescription = "Scroll Up",
-                        tint = Color.White.copy(alpha = 0.7f),
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Scroll Up", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
                 }
 
                 // Track indicator
@@ -145,7 +140,7 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                         .fillMaxWidth()
                         .weight(1f)
                         .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp,
-                            onClick = { vm?.sendKey(TvKey.VOL_DOWN) }),
+                            onClick = { vm?.sendKey(TvKey.DOWN) }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
