@@ -20,7 +20,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.example.uniremote.R
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
@@ -33,6 +35,7 @@ import com.example.uniremote.ui.screens.remote.MediaPlaybackLayout
 import com.example.uniremote.ui.screens.remote.NumpadLayout
 import com.example.uniremote.ui.theme.PremiumBgEnd
 import com.example.uniremote.ui.theme.PremiumBgStart
+import com.example.uniremote.viewmodel.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
 import kotlin.math.abs
 
@@ -44,19 +47,21 @@ private data class RemoteTab(
 )
 
 private val remoteTabs = listOf(
-    RemoteTab(Icons.Filled.GridView,      "Remote"),   // Tab 1 – VerticalPager 4 pages
-    RemoteTab(Icons.Filled.Games,         "D-Pad"),    // Tab 2 – placeholder
-    RemoteTab(Icons.Filled.NearMe,        "TouchPad"), // Tab 3 – placeholder
-    RemoteTab(Icons.Filled.Keyboard,      "Keyboard")  // Tab 4 – UI sẽ cung cấp sau
+    RemoteTab(Icons.Filled.GridView,      "Remote"),
+    RemoteTab(Icons.Filled.Games,         "D-Pad"),
+    RemoteTab(Icons.Filled.NearMe,        "TouchPad"),
+    RemoteTab(Icons.Filled.Keyboard,      "Keyboard")
 )
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 @Composable
 fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     var selectedRemoteTab by rememberSaveable { mutableStateOf(0) }
+    val status by vm.connectionStatus.collectAsState()
+    val isConnecting = status is ConnectionStatus.Connecting
 
     Scaffold(
-        topBar = { TopBar(title = "DIGITAL PILOT", onPowerClick = { vm.power() }) },
+        topBar = { TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() }) },
         bottomBar = { BottomNavBar(currentTab = NavigationTab.REMOTE, onTabSelected = onNavigate) },
         containerColor = Color.Transparent
     ) { paddingValues ->
@@ -83,6 +88,33 @@ fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     1 -> DPadTouchpadLayout(vm)
                     2 -> MouseCursorLayout(vm)
                     3 -> KeyboardLayout(vm)
+                }
+
+                if (isConnecting) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(Color.Black.copy(alpha = 0.38f))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {}
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.5.dp
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Text(
+                                text = stringResource(R.string.connecting_overlay_message),
+                                color = Color.White.copy(alpha = 0.9f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -185,31 +217,3 @@ private fun RemoteVerticalPagerContent(vm: RemoteViewModel) {
     }
 }
 
-// ── Placeholder cho tab chưa có UI ──────────────────────────────────────────
-@Composable
-private fun RemotePlaceholder(label: String) {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Filled.Construction,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.3f),
-                modifier = Modifier.size(48.dp)
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = label,
-                color = Color.White.copy(alpha = 0.4f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = "UI đang phát triển",
-                color = Color.White.copy(alpha = 0.25f),
-                style = MaterialTheme.typography.labelSmall
-            )
-        }
-    }
-}

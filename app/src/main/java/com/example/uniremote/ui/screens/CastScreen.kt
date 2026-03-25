@@ -9,45 +9,15 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AddToPhotos
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.filled.Smartphone
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.SyncAlt
-import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material.icons.filled.VideoFile
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,29 +25,24 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.R
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
 import com.example.uniremote.ui.theme.*
-import kotlinx.coroutines.delay
-
-// Cast / Mirroring session state (shared at object level; move to ViewModel)
-object CastState {
-    var isMirroring    = mutableStateOf(false)
-    var isLowLatency   = mutableStateOf(false)
-    var castingItem    = mutableStateOf<String?>(null)  // null = nothing casting
-}
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun CastScreen(
-    onNavigate: (NavigationTab) -> Unit
-) {
+fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
+    val isMirroring by vm.isMirroring.collectAsState()
+
     Scaffold(
         topBar = {
-            TopBar(title = "DIGITAL PILOT", onPowerClick = {})
+            TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() })
         },
         bottomBar = {
             BottomNavBar(currentTab = NavigationTab.CAST, onTabSelected = onNavigate)
@@ -98,7 +63,7 @@ fun CastScreen(
                 verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
                 CastingSection()
-                MirroringSection()
+                MirroringSection(isMirroring = isMirroring, onToggle = { vm.toggleMirroring() })
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -113,8 +78,8 @@ data class MediaItem(val label: String, val icon: ImageVector, val tab: String)
 
 private val mediaItems = mapOf(
     "Photos" to listOf(
-        MediaItem("Vacation 2025", Icons.Filled.Image,     "Photos"),
-        MediaItem("Gallery",       Icons.Filled.AddToPhotos,"Photos"),
+        MediaItem("Vacation 2025", Icons.Filled.Image,      "Photos"),
+        MediaItem("Gallery",       Icons.Filled.AddToPhotos, "Photos"),
     ),
     "Videos" to listOf(
         MediaItem("Movie Clip",  Icons.Filled.PlayCircle, "Videos"),
@@ -122,21 +87,23 @@ private val mediaItems = mapOf(
     ),
     "Music"  to listOf(
         MediaItem("My Playlist", Icons.Filled.MusicNote,  "Music"),
-        MediaItem("Browse All",  Icons.Filled.AddToPhotos,"Music"),
+        MediaItem("Browse All",  Icons.Filled.AddToPhotos, "Music"),
     )
 )
 
 @Composable
 fun CastingSection() {
-    var selectedTabIndex by remember { mutableIntStateOf(0) }
+    var selectedTabIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val tabs = listOf("Photos", "Videos", "Music")
     val currentTab = tabs[selectedTabIndex]
-
-    var castingItem by CastState.castingItem
+    var castingItem by remember { mutableStateOf<String?>(null) }
 
     // Auto-clear casting feedback after 3s
     LaunchedEffect(castingItem) {
-        if (castingItem != null) { delay(3000); castingItem = null }
+        if (castingItem != null) {
+            kotlinx.coroutines.delay(3000)
+            castingItem = null
+        }
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -150,7 +117,6 @@ fun CastingSection() {
                 style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.primary
             )
-            // "NOW CASTING" badge or "GALLERY STREAM"
             if (castingItem != null) {
                 Row(
                     modifier = Modifier
@@ -178,7 +144,6 @@ fun CastingSection() {
             }
         }
 
-        // Now casting info bar
         if (castingItem != null) {
             Row(
                 modifier = Modifier
@@ -189,12 +154,7 @@ fun CastingSection() {
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
+                Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     text = "Casting \"$castingItem\" to Living Room TV",
@@ -235,15 +195,12 @@ fun CastingSection() {
             }
         }
 
-        // Media Preview Grid (tappable to cast)
+        // Media Preview Grid
         val items = mediaItems[currentTab] ?: emptyList()
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(264.dp),
+            modifier = Modifier.fillMaxWidth().height(264.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Main item
             items.getOrNull(0)?.let { item ->
                 Box(
                     modifier = Modifier
@@ -260,28 +217,16 @@ fun CastingSection() {
                         .clickable { castingItem = item.label }
                 ) {
                     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f))))
-                    )
-                    Row(
-                        modifier = Modifier.align(Alignment.BottomStart).padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
+                    Row(modifier = Modifier.align(Alignment.BottomStart).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Icon(item.icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(item.label, style = MaterialTheme.typography.labelMedium, color = Color.White)
                     }
-                    // Cast icon overlay when casting
                     if (castingItem == item.label) {
                         Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(12.dp)
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary),
+                            modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).size(32.dp)
+                                .clip(CircleShape).background(MaterialTheme.colorScheme.primary),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Filled.Tv, null, tint = Color.White, modifier = Modifier.size(16.dp))
@@ -290,12 +235,7 @@ fun CastingSection() {
                 }
             }
 
-            // Right column
-            Column(
-                modifier = Modifier.weight(1f).fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Second media item
+            Column(modifier = Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items.getOrNull(1)?.let { item ->
                     Box(
                         modifier = Modifier
@@ -316,26 +256,19 @@ fun CastingSection() {
                         Icon(item.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
                     }
                 }
-
-                // Browse all
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(16.dp))
                         .background(surface_container_high)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-                        .clickable { /* TODO: open file picker */ },
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f), RoundedCornerShape(16.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         Icon(Icons.Filled.AddToPhotos, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "BROWSE ALL",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Text("BROWSE ALL", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -345,14 +278,12 @@ fun CastingSection() {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Screen Mirroring section
+// Screen Mirroring section – wired to ViewModel
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun MirroringSection() {
-    var isMirroring  by CastState.isMirroring
-    var isLowLatency by CastState.isLowLatency
+fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
+    var isLowLatency by remember { mutableStateOf(false) }
 
-    // Pulse when mirroring is active
     val infiniteTransition = rememberInfiniteTransition(label = "mirror_pulse")
     val mirrorScale by infiniteTransition.animateFloat(
         initialValue = 0.98f, targetValue = 1.02f,
@@ -371,32 +302,21 @@ fun MirroringSection() {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom
         ) {
-            Text(
-                text = "Screen Mirroring",
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
+            Text(text = "Screen Mirroring", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
             Row(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(
-                        if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                    )
+                    .background(if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                     .padding(horizontal = 12.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
-                    modifier = Modifier
-                        .size(8.dp).clip(CircleShape)
-                        .background(
-                            if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha)
-                            else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        )
+                    modifier = Modifier.size(8.dp).clip(CircleShape)
+                        .background(if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha) else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isMirroring) "STREAMING" else "READY TO CONNECT",
+                    text = if (isMirroring) stringResource(R.string.cast_streaming) else stringResource(R.string.cast_ready),
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                     color = MaterialTheme.colorScheme.primary,
                     letterSpacing = 1.sp
@@ -409,16 +329,8 @@ fun MirroringSection() {
                 .fillMaxWidth()
                 .scale(if (isMirroring) mirrorScale else 1f)
                 .clip(RoundedCornerShape(32.dp))
-                .background(
-                    if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                    else surface_container_low
-                )
-                .border(
-                    1.dp,
-                    if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                    else Color.Transparent,
-                    RoundedCornerShape(32.dp)
-                )
+                .background(if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else surface_container_low)
+                .border(1.dp, if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(32.dp))
                 .padding(32.dp)
         ) {
             Column(
@@ -426,85 +338,43 @@ fun MirroringSection() {
                 verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
                 // Visual: Phone → TV
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
                     Box(
-                        modifier = Modifier
-                            .size(64.dp, 112.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                else surface_container_lowest
-                            )
-                            .border(
-                                2.dp,
-                                if (isMirroring) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                                RoundedCornerShape(16.dp)
-                            ),
+                        modifier = Modifier.size(64.dp, 112.dp).clip(RoundedCornerShape(16.dp))
+                            .background(if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else surface_container_lowest)
+                            .border(2.dp, if (isMirroring) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Smartphone, null, tint = if (isMirroring) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant)
+                    }
+
+                    Box(
+                        modifier = Modifier.weight(1f).height(2.dp)
+                            .background(Brush.horizontalGradient(listOf(
+                                MaterialTheme.colorScheme.outlineVariant,
+                                if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha) else MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.outlineVariant
+                            ))),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            Icons.Filled.Smartphone,
-                            contentDescription = null,
-                            tint = if (isMirroring) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                            Icons.Filled.SyncAlt, null,
+                            tint = if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha) else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.background(if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else surface_container_low).padding(horizontal = 8.dp)
                         )
                     }
 
                     Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(2.dp)
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        MaterialTheme.colorScheme.outlineVariant,
-                                        if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha)
-                                        else MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.colorScheme.outlineVariant
-                                    )
-                                )
-                            ),
+                        modifier = Modifier.size(96.dp, 64.dp).clip(RoundedCornerShape(12.dp))
+                            .background(if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else surface_container_lowest)
+                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(
-                            Icons.Filled.SyncAlt,
-                            contentDescription = null,
-                            tint = if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha)
-                                   else MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.background(
-                                if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                else surface_container_low
-                            ).padding(horizontal = 8.dp)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(96.dp, 64.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                else surface_container_lowest
-                            )
-                            .border(
-                                2.dp,
-                                MaterialTheme.colorScheme.primary,
-                                RoundedCornerShape(12.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Tv,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                        Icon(Icons.Filled.Tv, null, tint = MaterialTheme.colorScheme.primary)
                     }
                 }
 
-                // Start / Stop button
+                // Start / Stop button – calls vm.toggleMirroring() via onToggle
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -515,24 +385,19 @@ fun MirroringSection() {
                             else
                                 Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer))
                         )
-                        .clickable {
-                            // TODO: viewModel.toggleMirroring()
-                            isMirroring = !isMirroring
-                        }
+                        .clickable { onToggle() }
                         .padding(vertical = 20.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(
-                            if (isMirroring) Icons.Filled.Stop else Icons.Filled.Smartphone,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            if (isMirroring) Icons.Filled.Stop else Icons.Filled.Smartphone, null,
+                            tint = Color.White, modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (isMirroring) "STOP MIRRORING" else "START MIRRORING",
+                            text = if (isMirroring) stringResource(R.string.cast_stop_mirroring) else stringResource(R.string.cast_start_mirroring),
                             style = MaterialTheme.typography.titleMedium,
                             color = Color.White,
                             letterSpacing = 2.sp
@@ -543,75 +408,39 @@ fun MirroringSection() {
 
                 // Low Latency toggle
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(surface_container_highest.copy(alpha = 0.4f))
-                        .padding(16.dp),
+                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(surface_container_highest.copy(alpha = 0.4f)).padding(16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(surface_bright)
-                                .padding(8.dp)
-                        ) {
-                            Icon(Icons.Filled.Bolt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Box(modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(surface_bright).padding(8.dp)) {
+                            Icon(Icons.Filled.Bolt, null, tint = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text(
-                                "Low Latency Mode",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(bottom = 2.dp)
-                            )
-                            Text(
-                                "OPTIMIZE FOR GAMING",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Text("Low Latency Mode", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(bottom = 2.dp))
+                            Text("OPTIMIZE FOR GAMING", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-
                     Box(
-                        modifier = Modifier
-                            .width(48.dp).height(24.dp)
-                            .clip(CircleShape)
+                        modifier = Modifier.width(48.dp).height(24.dp).clip(CircleShape)
                             .background(if (isLowLatency) MaterialTheme.colorScheme.primaryContainer else surface_bright)
-                            .clickable { isLowLatency = !isLowLatency }
-                            .padding(4.dp),
+                            .clickable { isLowLatency = !isLowLatency }.padding(4.dp),
                         contentAlignment = if (isLowLatency) Alignment.CenterEnd else Alignment.CenterStart
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .size(16.dp).clip(CircleShape)
-                                .background(
-                                    if (isLowLatency) MaterialTheme.colorScheme.surface
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                        )
+                        Box(modifier = Modifier.size(16.dp).clip(CircleShape)
+                            .background(if (isLowLatency) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant))
                     }
                 }
 
-                // Mirroring status hint
                 if (isMirroring) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                            .padding(12.dp),
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)).padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = primary_fixed_dim,
-                            modifier = Modifier.size(16.dp)
-                        )
+                        Icon(Icons.Filled.CheckCircle, null, tint = primary_fixed_dim, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             "Mirroring to Living Room TV • ${if (isLowLatency) "Low-latency" else "Standard"} mode",
@@ -623,20 +452,11 @@ fun MirroringSection() {
             }
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Filled.Info,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
-            )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                "Ensure both devices are on the same Wi-Fi network",
+                stringResource(R.string.cast_wifi_hint),
                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

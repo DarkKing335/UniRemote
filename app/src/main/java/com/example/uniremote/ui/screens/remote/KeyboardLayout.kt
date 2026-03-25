@@ -9,9 +9,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.R
 import com.example.uniremote.viewmodel.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
 
@@ -30,7 +32,7 @@ fun KeyboardLayout(vm: RemoteViewModel? = null) {
             shape = RoundedCornerShape(4.dp),
             text = {
                 Text(
-                    text = "Không thể gửi văn bản lúc này.\nThiết bị được kết nối không hiển thị màn hình nhập văn bản.",
+                    text = stringResource(R.string.keyboard_send_error_message),
                     color = Color(0xFF232323),
                     fontSize = 17.sp,
                     lineHeight = 26.sp
@@ -38,7 +40,7 @@ fun KeyboardLayout(vm: RemoteViewModel? = null) {
             },
             confirmButton = {
                 TextButton(onClick = { showDialog = false }) {
-                    Text("OK", color = Color(0xFF00897B), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ok), color = Color(0xFF00897B), fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 }
             }
         )
@@ -64,7 +66,11 @@ fun KeyboardLayout(vm: RemoteViewModel? = null) {
             trailingIcon = {
                 if (inputText.isNotEmpty()) {
                     IconButton(onClick = { inputText = "" }) {
-                        Icon(Icons.Filled.Close, contentDescription = "Xóa", tint = Color.White.copy(alpha = 0.4f))
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = stringResource(R.string.clear_text_content_description),
+                            tint = Color.White.copy(alpha = 0.4f)
+                        )
                     }
                 }
             },
@@ -79,7 +85,7 @@ fun KeyboardLayout(vm: RemoteViewModel? = null) {
         Button(
             onClick = {
                 if (isConnected && inputText.isNotBlank()) {
-                    vm.sendText(inputText)
+                    vm.sendTextAndEnter(inputText)
                     inputText = ""
                 } else {
                     showDialog = true
@@ -94,7 +100,7 @@ fun KeyboardLayout(vm: RemoteViewModel? = null) {
             ),
             shape = RoundedCornerShape(4.dp)
         ) {
-            Text("Gửi", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.send), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }

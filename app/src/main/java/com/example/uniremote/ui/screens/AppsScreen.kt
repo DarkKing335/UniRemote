@@ -26,61 +26,34 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.uniremote.R
+import com.example.uniremote.network.TvAppUiModel
+import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
 import com.example.uniremote.ui.theme.*
-import kotlinx.coroutines.delay
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Data model for a TV-installed app (matches TvApp backend model)
-// ─────────────────────────────────────────────────────────────────────────────
-data class TvAppUi(
-    val id: String,
-    val name: String,
-    val icon: ImageVector,
-    val tint: Color
-)
-
-// Simulated TV app list – in production this comes from the ViewModel / controller
-private val simulatedTvApps = listOf(
-    TvAppUi("netflix",      "Netflix",      Icons.Filled.Movie,        Color(0xFFE50914)),
-    TvAppUi("youtube",      "YouTube",      Icons.Filled.PlayCircle,   Color(0xFFFF0000)),
-    TvAppUi("prime",        "Prime Video",  Icons.Filled.ShopTwo,      Color(0xFF00A8E1)),
-    TvAppUi("spotify",      "Spotify",      Icons.Filled.MusicNote,    Color(0xFF1DB954)),
-    TvAppUi("disney",       "Disney+",      Icons.Filled.Star,         Color(0xFF113CCF)),
-    TvAppUi("hbo",          "HBO Max",      Icons.Filled.Tv,           Color(0xFF9B59B6)),
-    TvAppUi("twitch",       "Twitch",       Icons.Filled.VideogameAsset, Color(0xFF9146FF)),
-    TvAppUi("browser",      "Browser",      Icons.Filled.Language,     Color(0xFF4285F4)),
-    TvAppUi("plex",         "Plex",         Icons.Filled.VideoLibrary, Color(0xFFE5A00D)),
-    TvAppUi("settings",     "TV Settings",  Icons.Filled.Settings,     Color(0xFF8D8D8D)),
-    TvAppUi("gallery",      "Gallery",      Icons.Filled.Image,        Color(0xFF34A853)),
-    TvAppUi("filemanager",  "Files",        Icons.Filled.Folder,       Color(0xFFFBBC05)),
-)
+import com.example.uniremote.viewmodel.ConnectionStatus
+import com.example.uniremote.viewmodel.RemoteViewModel
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun AppsScreen(onNavigate: (NavigationTab) -> Unit) {
-    // Sync state: idle | loading | loaded | error
-    var syncState by remember { mutableStateOf<SyncState>(SyncState.Idle) }
-    var tvApps    by remember { mutableStateOf<List<TvAppUi>>(emptyList()) }
-
-    // Simulate initial sync on first composition
-    LaunchedEffect(Unit) {
-        syncState = SyncState.Loading
-        delay(1200)  // simulated network call
-        tvApps    = simulatedTvApps
-        syncState = SyncState.Loaded
-    }
+fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
+    val apps       by vm.installedApps.collectAsState()
+    val isLoading  by vm.isLoadingApps.collectAsState()
+    val status     by vm.connectionStatus.collectAsState()
+    val isConnected = status is ConnectionStatus.Connected
 
     Scaffold(
         topBar = {
-            TopBar(title = "DIGITAL PILOT", onPowerClick = {})
+            TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() })
         },
         bottomBar = {
             BottomNavBar(currentTab = NavigationTab.APPS, onTabSelected = onNavigate)
@@ -102,17 +75,15 @@ fun AppsScreen(onNavigate: (NavigationTab) -> Unit) {
             ) {
                 // ── Quick Launch App Grid ──────────────────────────────────
                 QuickLaunchSection(
-                    syncState = syncState,
-                    apps      = tvApps,
-                    onSync    = {
-                        // Re-sync
-                        syncState = SyncState.Loading
-                        tvApps    = emptyList()
-                    }
+                    isLoading   = isLoading,
+                    isConnected = isConnected,
+                    apps        = apps,
+                    onSync      = { vm.loadInstalledApps() },
+                    onLaunch    = { appId -> vm.launchApp(appId) }
                 )
 
                 // ── Custom Macros ─────────────────────────────────────────
-                CustomMacrosSection()
+                CustomMacrosSection(vm = vm)
 
                 Spacer(modifier = Modifier.height(32.dp))
             }
@@ -123,18 +94,14 @@ fun AppsScreen(onNavigate: (NavigationTab) -> Unit) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Quick App Launch section
 // ─────────────────────────────────────────────────────────────────────────────
-sealed class SyncState {
-    object Idle    : SyncState()
-    object Loading : SyncState()
-    object Loaded  : SyncState()
-    data class Error(val msg: String) : SyncState()
-}
 
 @Composable
 fun QuickLaunchSection(
-    syncState: SyncState,
-    apps: List<TvAppUi>,
-    onSync: () -> Unit
+    isLoading: Boolean,
+    isConnected: Boolean,
+    apps: List<TvAppUiModel>,
+    onSync: () -> Unit,
+    onLaunch: (String) -> Unit
 ) {
     // Spinner animation
     val infiniteTransition = rememberInfiniteTransition(label = "spin")
@@ -153,22 +120,22 @@ fun QuickLaunchSection(
         ) {
             Column {
                 Text(
-                    text = "QUICK LAUNCH",
+                    text = stringResource(R.string.apps_quick_launch_label),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     letterSpacing = 2.sp,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
                 Text(
-                    text = "Installed Apps",
+                    text = stringResource(R.string.apps_installed_title),
                     style = MaterialTheme.typography.headlineLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
             // Sync button / status chip
-            when (syncState) {
-                SyncState.Loading -> {
+            when {
+                isLoading -> {
                     Row(
                         modifier = Modifier
                             .clip(CircleShape)
@@ -176,7 +143,6 @@ fun QuickLaunchSection(
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Simple looping spinner using rotation animation
                         Icon(
                             Icons.Filled.Sync,
                             contentDescription = null,
@@ -187,14 +153,14 @@ fun QuickLaunchSection(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            "SYNCING",
+                            stringResource(R.string.apps_syncing),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 1.sp
                         )
                     }
                 }
-                SyncState.Loaded -> {
+                apps.isNotEmpty() -> {
                     Row(
                         modifier = Modifier
                             .clip(CircleShape)
@@ -223,7 +189,7 @@ fun QuickLaunchSection(
                         modifier = Modifier
                             .clip(CircleShape)
                             .background(surface_container_high)
-                            .clickable { onSync() }
+                            .clickable { if (isConnected) onSync() }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -235,7 +201,7 @@ fun QuickLaunchSection(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            "SYNC",
+                            stringResource(R.string.apps_sync),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             letterSpacing = 1.sp
@@ -247,9 +213,41 @@ fun QuickLaunchSection(
 
         // Content area
         when {
-            syncState == SyncState.Loading -> AppGridSkeleton()
-            apps.isEmpty()               -> AppListEmpty(onSync)
-            else                         -> AppGrid(apps)
+            !isConnected && apps.isEmpty() -> AppListNotConnected()
+            isLoading                       -> AppGridSkeleton()
+            apps.isEmpty()                  -> AppListEmpty(onSync)
+            else                            -> AppGrid(apps, onLaunch)
+        }
+    }
+}
+
+// Not-connected empty state
+@Composable
+private fun AppListNotConnected() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(surface_container_low)
+            .border(1.dp, GlassBtnBorder, RoundedCornerShape(24.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                Icons.Filled.WifiOff,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                modifier = Modifier.size(40.dp)
+            )
+            Text(
+                stringResource(R.string.apps_not_connected),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
         }
     }
 }
@@ -307,14 +305,14 @@ private fun AppListEmpty(onSync: () -> Unit) {
                 modifier = Modifier.size(40.dp)
             )
             Text(
-                "No apps found",
+                stringResource(R.string.apps_no_apps),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
             )
             TextButton(onClick = onSync) {
                 Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Sync from TV", style = MaterialTheme.typography.labelMedium)
+                Text(stringResource(R.string.apps_sync_from_tv), style = MaterialTheme.typography.labelMedium)
             }
         }
     }
@@ -322,8 +320,31 @@ private fun AppListEmpty(onSync: () -> Unit) {
 
 // Actual app grid (non-lazy so it can live inside a ScrollColumn)
 @Composable
-private fun AppGrid(apps: List<TvAppUi>) {
-    // Fixed 4-column grid rendered as sequential rows
+private fun AppGrid(apps: List<TvAppUiModel>, onLaunch: (String) -> Unit) {
+    // Pick a deterministic tint color based on app name hash
+    fun tintFor(name: String): Color {
+        val hue = ((name.hashCode() and 0x7FFFFFFF) % 360).toFloat()
+        return Color.hsv(hue, 0.55f, 0.85f)
+    }
+
+    // Pick a fitting icon by common app keywords
+    fun iconFor(name: String): ImageVector = when {
+        name.contains("netflix", ignoreCase = true)  -> Icons.Filled.Movie
+        name.contains("youtube", ignoreCase = true)  -> Icons.Filled.PlayCircle
+        name.contains("spotify", ignoreCase = true)  -> Icons.Filled.MusicNote
+        name.contains("chrome",  ignoreCase = true)  -> Icons.Filled.Language
+        name.contains("prime",   ignoreCase = true)  -> Icons.Filled.ShopTwo
+        name.contains("disney",  ignoreCase = true)  -> Icons.Filled.Star
+        name.contains("twitch",  ignoreCase = true)  -> Icons.Filled.VideogameAsset
+        name.contains("plex",    ignoreCase = true)  -> Icons.Filled.VideoLibrary
+        name.contains("setting", ignoreCase = true)  -> Icons.Filled.Settings
+        name.contains("gallery", ignoreCase = true)  -> Icons.Filled.Image
+        name.contains("file",    ignoreCase = true)  -> Icons.Filled.Folder
+        name.contains("music",   ignoreCase = true)  -> Icons.Filled.MusicNote
+        name.contains("tv",      ignoreCase = true)  -> Icons.Filled.Tv
+        else                                          -> Icons.Filled.Apps
+    }
+
     val rows = apps.chunked(4)
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         rows.forEach { rowApps ->
@@ -334,10 +355,10 @@ private fun AppGrid(apps: List<TvAppUi>) {
                 rowApps.forEach { app ->
                     AppButton(
                         modifier = Modifier.weight(1f),
-                        icon  = app.icon,
-                        color = app.tint,
-                        label = app.name,
-                        onClick = { /* TODO: viewModel.launchApp(app.id) */ }
+                        icon     = iconFor(app.name),
+                        color    = tintFor(app.name),
+                        label    = app.name,
+                        onClick  = { onLaunch(app.id) }
                     )
                 }
                 // Fill remaining cells in incomplete last row
@@ -378,13 +399,57 @@ fun AppButton(modifier: Modifier, icon: ImageVector, color: Color, label: String
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             letterSpacing = 1.sp,
             maxLines = 1,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Custom Macros – wired to vm.runMacro()
+// ─────────────────────────────────────────────────────────────────────────────
+
+private data class MacroDef(
+    val title: String,
+    val desc: String,
+    val icon: ImageVector,
+    val color: @Composable () -> Color,
+    val keys: List<TvKey>
+)
+
 @Composable
-fun CustomMacrosSection() {
+fun CustomMacrosSection(vm: RemoteViewModel) {
+    val macros = listOf(
+        MacroDef(
+            title = "Movie Night",
+            desc  = "Home → Netflix → Play",
+            icon  = Icons.Filled.Nightlight,
+            color = { MaterialTheme.colorScheme.primary },
+            keys  = listOf(TvKey.HOME, TvKey.NETFLIX, TvKey.OK)
+        ),
+        MacroDef(
+            title = "Gaming Mode",
+            desc  = "HDMI 2 → Mute → Play",
+            icon  = Icons.Filled.VideogameAsset,
+            color = { MaterialTheme.colorScheme.error },
+            keys  = listOf(TvKey.HDMI_2, TvKey.MUTE, TvKey.OK)
+        ),
+        MacroDef(
+            title = "Evening Chill",
+            desc  = "Home → YouTube → OK",
+            icon  = Icons.Filled.FilterVintage,
+            color = { primary_fixed_dim },
+            keys  = listOf(TvKey.HOME, TvKey.YOUTUBE, TvKey.OK)
+        ),
+        MacroDef(
+            title = "Night Cycle",
+            desc  = "Mute → Volume 0 → Power",
+            icon  = Icons.Filled.Bedtime,
+            color = { MaterialTheme.colorScheme.onSurfaceVariant },
+            keys  = listOf(TvKey.MUTE, TvKey.VOL_DOWN, TvKey.VOL_DOWN,
+                           TvKey.VOL_DOWN, TvKey.VOL_DOWN, TvKey.VOL_DOWN, TvKey.POWER)
+        )
+    )
+
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column {
             Text(
@@ -402,48 +467,40 @@ fun CustomMacrosSection() {
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                MacroCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Movie Night",
-                    desc  = "Dim lights 15%, Open Netflix, Set Audio to Theater",
-                    icon  = Icons.Filled.Nightlight,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                MacroCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Gaming Mode",
-                    desc  = "Switch to HDMI 2, Enable Game Mode, Boost Bass",
-                    icon  = Icons.Filled.VideogameAsset,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                MacroCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Evening Chill",
-                    desc  = "Warm lights, Lo-Fi Spotify, Mute notifications",
-                    icon  = Icons.Filled.FilterVintage,
-                    color = primary_fixed_dim
-                )
-                MacroCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Night Cycle",
-                    desc  = "Shutdown all devices, Lock doors, Arm security",
-                    icon  = Icons.Filled.Bedtime,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            macros.chunked(2).forEach { row ->
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    row.forEach { macro ->
+                        MacroCard(
+                            modifier = Modifier.weight(1f),
+                            title    = macro.title,
+                            desc     = macro.desc,
+                            icon     = macro.icon,
+                            color    = macro.color(),
+                            onRun    = { vm.runMacro(macro.keys) }
+                        )
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-fun MacroCard(modifier: Modifier, title: String, desc: String, icon: ImageVector, color: Color) {
+fun MacroCard(
+    modifier: Modifier,
+    title: String,
+    desc: String,
+    icon: ImageVector,
+    color: Color,
+    onRun: () -> Unit = {}
+) {
     var isRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(isRunning) {
-        if (isRunning) { delay(2000); isRunning = false }
+        if (isRunning) {
+            kotlinx.coroutines.delay(2000)
+            isRunning = false
+        }
     }
 
     Box(
@@ -457,7 +514,10 @@ fun MacroCard(modifier: Modifier, title: String, desc: String, icon: ImageVector
                 if (isRunning) color.copy(alpha = 0.4f) else GlassBtnBorder,
                 RoundedCornerShape(24.dp)
             )
-            .clickable { isRunning = !isRunning }
+            .clickable {
+                isRunning = !isRunning
+                if (isRunning) onRun()
+            }
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -498,5 +558,3 @@ fun MacroCard(modifier: Modifier, title: String, desc: String, icon: ImageVector
         }
     }
 }
-
-
