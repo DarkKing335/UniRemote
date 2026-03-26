@@ -64,23 +64,26 @@ class DeviceDiscovery(private val context: Context) {
         // ── Serial resolve queue ──────────────────────────────────────────────
         // NsdManager only allows ONE active resolve at a time.
         // Violations cause "listener already in use" IllegalArgumentException.
-        val resolveQueue = LinkedBlockingQueue<NsdServiceInfo>()
+        data class ResolveTask(val info: NsdServiceInfo, val brand: TvBrand)
+        val resolveQueue = LinkedBlockingQueue<ResolveTask>()
         val isResolving = java.util.concurrent.atomic.AtomicBoolean(false)
 
-        fun processResolveQueue(brand: TvBrand) {
+        fun processResolveQueue() {
             if (isResolving.get()) return
-            val info = resolveQueue.poll() ?: return
+            val task = resolveQueue.poll() ?: return
+            val brand = task.brand
+            val info = task.info
             isResolving.set(true)
             nsdManager.resolveService(info, object : NsdManager.ResolveListener {
                 override fun onResolveFailed(svcInfo: NsdServiceInfo, code: Int) {
                     Log.w(TAG, "Resolve failed: ${svcInfo.serviceName} code=$code")
                     isResolving.set(false)
-                    processResolveQueue(brand)
+                    processResolveQueue()
                 }
                 override fun onServiceResolved(svcInfo: NsdServiceInfo) {
                     isResolving.set(false)
                     val ip   = svcInfo.host?.hostAddress ?: run {
-                        processResolveQueue(brand)
+                        processResolveQueue()
                         return
                     }
                     val port = if (svcInfo.port > 0) svcInfo.port else brand.defaultPort
@@ -108,7 +111,7 @@ class DeviceDiscovery(private val context: Context) {
                     )
                     discovered[id] = device
                     trySend(discovered.values.toList())
-                    processResolveQueue(detectedBrand)
+                    processResolveQueue()
                 }
             })
         }
@@ -136,8 +139,8 @@ class DeviceDiscovery(private val context: Context) {
                 }
                 override fun onServiceFound(info: NsdServiceInfo) {
                     Log.d(TAG, "Service found: ${info.serviceName} [$serviceType]")
-                    resolveQueue.offer(info)
-                    processResolveQueue(brand)
+                    resolveQueue.offer(ResolveTask(info, brand))
+                    processResolveQueue()
                 }
             }
             listeners.add(listener)

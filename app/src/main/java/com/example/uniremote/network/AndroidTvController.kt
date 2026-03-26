@@ -108,8 +108,8 @@ class AndroidTvController(
     }
 
     override suspend fun sendText(text: String): Unit = withContext(Dispatchers.IO) {
-        val escaped = text.replace(" ", "%s").replace("\"", "\\\"")
-        shell("input text \"$escaped\"")
+        val safeText = text.replace("'", "'\\''").replace(" ", "%s")
+        shell("input text '$safeText'")
     }
 
     override suspend fun getInstalledApps(): List<TvApp> = withContext(Dispatchers.IO) {
@@ -132,11 +132,11 @@ class AndroidTvController(
     }
 
     override suspend fun moveMouse(dx: Float, dy: Float): Unit = withContext(Dispatchers.IO) {
-        shell("input mouse move ${dx.toInt()} ${dy.toInt()}")
+        shell("input roll $dx $dy")
     }
 
     override suspend fun tapMouse(): Unit = withContext(Dispatchers.IO) {
-        shell("input tap 0 0")
+        shell("input keyevent 23")
     }
 }
 

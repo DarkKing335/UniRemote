@@ -102,6 +102,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private var controller: TvController? = null
     private var discoveryJob: Job? = null
     private var macroJob: Job? = null
+    private var connectJob: Job? = null
     /** Holds the GoogleTvController while pairing is in progress. */
     private var googleTvPairingCtrl: GoogleTvController? = null
 
@@ -110,7 +111,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         // Ensure Dadb has a writable home directory for its ~/.android/adbkey
         System.setProperty("user.home", application.filesDir.absolutePath)
 
-        viewModelScope.launch {
+        connectJob = viewModelScope.launch {
             prefs.seedDefaultMacros()                      // ✅ insert 4 defaults if first run
             _currentSsid.value = WifiUtil.getCurrentSsid(application)
             val shouldReconnect = prefs.getAutoReconnectOnce()
@@ -147,6 +148,9 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             val ok = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { tryConnect(device) }
             if (ok == true) {
                 Log.i(TAG, "Auto-connect: connected to ${device.name}")
+                _connectedDevice.value = device
+                _connectionStatus.value = ConnectionStatus.Connected
+                loadInstalledApps()
                 return
             }
 
@@ -155,6 +159,9 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             val retry = withTimeoutOrNull(CONNECT_TIMEOUT_MS) { tryConnect(device) }
             if (retry == true) {
                 Log.i(TAG, "Auto-connect: connected to ${device.name} on retry")
+                _connectedDevice.value = device
+                _connectionStatus.value = ConnectionStatus.Connected
+                loadInstalledApps()
                 return
             }
 
@@ -183,7 +190,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     // ── Public: connect to a specific device ──────────────────────────────────
 
     fun connectTo(device: TvDevice) {
-        viewModelScope.launch {
+        connectJob?.cancel()
+        connectJob = viewModelScope.launch {
             _connectionStatus.value = ConnectionStatus.Connecting
             _connectedDevice.value  = device
 
@@ -242,6 +250,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun disconnect() {
         macroJob?.cancel(); macroJob = null
+        connectJob?.cancel(); connectJob = null
         val id = _connectedDevice.value?.id
         controller?.disconnect(); controller = null
         _connectionStatus.value = ConnectionStatus.Disconnected

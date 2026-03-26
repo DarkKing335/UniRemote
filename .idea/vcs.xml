@@ -2,8 +2,5 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/AndroidTV-Remote-Controller" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/multiremote" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/universal-remote-card" vcs="Git" />
   </component>
 </project>

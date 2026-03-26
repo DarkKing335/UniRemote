@@ -125,7 +125,13 @@ class LgWebOsController(
                         connected = true
                         if (!deferred.isCompleted) deferred.complete(true)
                     }
-                    "response", "error" -> {
+                    "error" -> {
+                        if (id == "register_0" && !deferred.isCompleted) {
+                            deferred.complete(false)
+                        }
+                        pendingRequests[id]?.complete(json)
+                    }
+                    "response" -> {
                         pendingRequests[id]?.complete(json)
                     }
                     "prompt" -> { /* TV is showing the pairing dialog */ }
@@ -133,13 +139,22 @@ class LgWebOsController(
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 connected = false
+                clearPendingRequests()
                 if (!deferred.isCompleted) deferred.complete(false)
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 connected = false
+                clearPendingRequests()
             }
         })
-        deferred.await()
+        try {
+            kotlinx.coroutines.withTimeout(15_000) {
+                deferred.await()
+            }
+        } catch (e: Exception) {
+            disconnect()
+            false
+        }
     }
 
     override fun disconnect() {
@@ -147,9 +162,15 @@ class LgWebOsController(
         webSocket?.close(1000, "User disconnected")
         webSocket = null
         connected = false
+        clearPendingRequests()
     }
 
     override fun isConnected() = connected
+
+    private fun clearPendingRequests() {
+        pendingRequests.values.forEach { it.cancel() }
+        pendingRequests.clear()
+    }
 
     // ── Send an SSAP request and await response ────────────────────────────────
     private suspend fun request(uri: String, payload: JSONObject? = null): JSONObject? =
@@ -164,8 +185,9 @@ class LgWebOsController(
             val deferred = CompletableDeferred<JSONObject>()
             pendingRequests[id] = deferred
             webSocket?.send(message.toString())
-            runCatching { deferred.await() }.getOrNull()
-                .also { pendingRequests.remove(id) }
+            runCatching { 
+                kotlinx.coroutines.withTimeout(5_000L) { deferred.await() } 
+            }.getOrNull().also { pendingRequests.remove(id) }
         }
 
     override suspend fun sendKey(key: TvKey) {
@@ -210,16 +232,23 @@ class LgWebOsController(
     }
 
     // ── Mouse pointer via separate WebSocket ──────────────────────────────────
+    private var pointerSocketDeferred: CompletableDeferred<Boolean>? = null
     private suspend fun ensurePointerSocket() {
         if (pointerSocket != null) return
         val resp = request("ssap://com.webos.service.networkinput/getPointerInputSocket")
         val socketPath = resp?.optJSONObject("payload")?.optString("socketPath") ?: return
+        
+        pointerSocketDeferred = CompletableDeferred()
         val req = Request.Builder().url(socketPath).build()
         pointerSocket = client.newWebSocket(req, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                pointerSocketDeferred?.complete(true)
+            }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 pointerSocket = null
             }
         })
+        kotlinx.coroutines.withTimeoutOrNull(3000L) { pointerSocketDeferred?.await() }
     }
 
     override suspend fun moveMouse(dx: Float, dy: Float) {

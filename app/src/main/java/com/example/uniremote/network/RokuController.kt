@@ -94,6 +94,7 @@ class RokuController(override val device: TvDevice) : TvController {
                 else -> "Lit_${java.net.URLEncoder.encode(char.toString(), "UTF-8")}"
             }
             post("$baseUrl/keypress/$endpoint")
+            kotlinx.coroutines.delay(50)
         }
     }
 

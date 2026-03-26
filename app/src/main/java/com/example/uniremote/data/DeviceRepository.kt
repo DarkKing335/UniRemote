@@ -71,8 +71,9 @@ class DeviceRepository(
         val ssid    = WifiUtil.getCurrentSsid(context) ?: return
         val onSsid  = prefs.getKnownDevicesOnce().filter { it.ssid == ssid }
         onSsid.forEach { entity ->
-            if (scannedIds.contains(entity.id)) prefs.markKnownDeviceOnline(entity.id)
-            else prefs.markKnownDeviceOffline(entity.id)
+            if (scannedIds.contains(entity.id)) {
+                prefs.markKnownDeviceOnline(entity.id)
+            }
         }
     }
 }
