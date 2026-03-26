@@ -211,6 +211,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 _connectionStatus.value = ConnectionStatus.Error("Cannot reach ${device.name}. Check that the TV is on and reachable.")
                 repo.markDeviceOffline(device.id)
                 controller = null
+                _connectedDevice.value = null
+                _toastMessage.emit("Không thể kết nối với ${device.name}. Vui lòng kiểm tra lại TV.")
             }
         }
     }

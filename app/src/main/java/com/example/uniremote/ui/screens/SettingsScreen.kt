@@ -7,6 +7,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -39,6 +41,13 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val userMacros      by vm.userMacros.collectAsState()
     val pairingState    by vm.pairingState.collectAsState()
     var isScanning      by remember { mutableStateOf(false) }
+    val context         = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        vm.toastMessage.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     DisposableEffect(Unit) { onDispose { vm.stopScan() } }
 
