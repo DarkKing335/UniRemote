@@ -10,6 +10,7 @@ import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.data.UserMacro
 import com.example.uniremote.network.*
+import com.example.uniremote.network.PairingState
 import com.example.uniremote.util.WifiUtil
 import com.example.uniremote.util.WakeOnLanUtil
 import kotlinx.coroutines.Dispatchers
@@ -88,15 +89,27 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     val userMacros: StateFlow<List<UserMacro>> = prefs.userMacros
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val _lgPairingKey = MutableStateFlow<String?>(null)
+    private val _lgPairingKey     = MutableStateFlow<String?>(null)
+
+    /** Google TV pairing state — observed by UI to show/hide PIN dialog. */
+    private val _pairingState = MutableStateFlow(PairingState.IDLE)
+    val pairingState: StateFlow<PairingState> = _pairingState.asStateFlow()
+
+    private val _toastMessage = MutableSharedFlow<String>()
+    val toastMessage: SharedFlow<String> = _toastMessage.asSharedFlow()
 
     // Internal
     private var controller: TvController? = null
     private var discoveryJob: Job? = null
     private var macroJob: Job? = null
+    /** Holds the GoogleTvController while pairing is in progress. */
+    private var googleTvPairingCtrl: GoogleTvController? = null
 
     // ── Init: startup delay + auto-connect + seed defaults ─────────────────────
     init {
+        // Ensure Dadb has a writable home directory for its ~/.android/adbkey
+        System.setProperty("user.home", application.filesDir.absolutePath)
+
         viewModelScope.launch {
             prefs.seedDefaultMacros()                      // ✅ insert 4 defaults if first run
             _currentSsid.value = WifiUtil.getCurrentSsid(application)
@@ -194,6 +207,39 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    // ── Google TV Pairing ──────────────────────────────────────────────────────
+
+    /**
+     * Starts the Google TV pairing flow for [device].
+     * When the TV shows a 6-char PIN, [pairingState] moves to WAITING_FOR_PIN.
+     * Call [submitPairingPin] with the code shown on screen.
+     */
+    fun startGoogleTvPairing(device: TvDevice) {
+        viewModelScope.launch {
+            _pairingState.value = PairingState.IDLE
+            val ctrl = GoogleTvController(device) { state -> _pairingState.value = state }
+            googleTvPairingCtrl = ctrl
+            val ok = ctrl.pair()
+            if (ok) {
+                // Pairing done — now open control session
+                connectTo(device)
+            } else {
+                _toastMessage.emit("Pairing failed. Make sure the TV is on and try again.")
+            }
+        }
+    }
+
+    /** Submit the 6-char PIN shown on the TV screen. */
+    fun submitPairingPin(pin: String) {
+        viewModelScope.launch { googleTvPairingCtrl?.submitPin(pin) }
+    }
+
+    /** Dismiss pinDialog without completing pairing. */
+    fun cancelPairing() {
+        _pairingState.value = PairingState.IDLE
+        googleTvPairingCtrl = null
+    }
+
     fun disconnect() {
         macroJob?.cancel(); macroJob = null
         val id = _connectedDevice.value?.id
@@ -225,8 +271,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             runCatching { controller?.sendText(text) }
                 .onFailure {
                     Log.e(TAG, "sendText failed: ${it.message}")
-                    _connectionStatus.value = ConnectionStatus.Error(
-                        it.message ?: "Không gửi được văn bản.")
+                    _toastMessage.emit(it.message ?: "Không gửi được văn bản.")
                 }
         }
     }
@@ -239,8 +284,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 controller?.sendKey(TvKey.OK)
             }.onFailure {
                 Log.e(TAG, "sendTextAndEnter failed: ${it.message}")
-                _connectionStatus.value = ConnectionStatus.Error(
-                    it.message ?: "Không gửi được văn bản.")
+                _toastMessage.emit(it.message ?: "Không gửi được văn bản.")
             }
         }
     }
@@ -251,8 +295,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 .onFailure { e ->
                     Log.e(TAG, "moveMouse failed: ${e.message}")
                     if (e is UnsupportedOperationException) {
-                        _connectionStatus.value = ConnectionStatus.Error(
-                            e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
+                        _toastMessage.emit(e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
                     }
                 }
         }
@@ -264,8 +307,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 .onFailure { e ->
                     Log.e(TAG, "tapMouse failed: ${e.message}")
                     if (e is UnsupportedOperationException) {
-                        _connectionStatus.value = ConnectionStatus.Error(
-                            e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
+                        _toastMessage.emit(e.message ?: "Thiết bị không hỗ trợ điều khiển chuột.")
                     }
                 }
         }
@@ -369,17 +411,20 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private fun buildController(device: TvDevice): TvController = when (device.brand) {
-        TvBrand.SAMSUNG -> SamsungTvController(device)
-        TvBrand.LG      -> LgWebOsController(
-            device                = device,
-            savedPairingKey       = _lgPairingKey.value,
-            onPairingKeyReceived  = { key ->
+        TvBrand.SAMSUNG   -> SamsungTvController(device)
+        TvBrand.LG        -> LgWebOsController(
+            device               = device,
+            savedPairingKey      = _lgPairingKey.value,
+            onPairingKeyReceived = { key ->
                 _lgPairingKey.value = key
                 viewModelScope.launch { prefs.saveLastDevice(device) }
             }
         )
-        TvBrand.ANDROID -> AndroidTvController(device)
-        TvBrand.UNKNOWN -> SamsungTvController(device)
+        TvBrand.SONY      -> AndroidTvController(device)   // Sony Bravia = Android TV
+        TvBrand.ANDROID   -> AndroidTvController(device)   // ADB-based
+        TvBrand.GOOGLE_TV -> GoogleTvController(device) { state -> _pairingState.value = state }
+        TvBrand.ROKU      -> RokuController(device)
+        TvBrand.UNKNOWN   -> SamsungTvController(device)
     }
 
     override fun onCleared() {

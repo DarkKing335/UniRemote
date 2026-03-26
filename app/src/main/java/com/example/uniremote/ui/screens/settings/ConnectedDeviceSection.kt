@@ -312,7 +312,7 @@ fun ScanButtonSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            if (device.brand == TvBrand.ANDROID) Icons.Filled.DesktopWindows else Icons.Filled.Tv,
+                            if (device.brand == TvBrand.ANDROID) Icons.Filled.DesktopWindows else Icons.Filled.Tv,  // SONY shows Tv icon
                             device.name, tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.width(16.dp))

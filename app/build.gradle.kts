@@ -53,6 +53,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.okhttp)
+    implementation("dev.mobile:dadb:1.2.10")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

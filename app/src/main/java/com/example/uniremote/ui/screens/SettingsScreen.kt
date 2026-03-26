@@ -37,9 +37,46 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val knownDevices    by vm.knownDevices.collectAsState()
     val currentSsid     by vm.currentSsid.collectAsState()
     val userMacros      by vm.userMacros.collectAsState()
+    val pairingState    by vm.pairingState.collectAsState()
     var isScanning      by remember { mutableStateOf(false) }
 
     DisposableEffect(Unit) { onDispose { vm.stopScan() } }
+
+    if (pairingState == com.example.uniremote.network.PairingState.WAITING_FOR_PIN || pairingState == com.example.uniremote.network.PairingState.CONNECTING) {
+        var pinCode by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { vm.cancelPairing() },
+            title = { Text(if (pairingState == com.example.uniremote.network.PairingState.CONNECTING) "Đang kết nối..." else "Yêu cầu mã PIN") },
+            text = {
+                if (pairingState == com.example.uniremote.network.PairingState.CONNECTING) {
+                    CircularProgressIndicator()
+                } else {
+                    Column {
+                        Text("Vui lòng nhập mã 6 chữ số đang hiển thị trên màn hình TV.", style = MaterialTheme.typography.bodyMedium)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        OutlinedTextField(
+                            value = pinCode,
+                            onValueChange = { if (it.length <= 6) pinCode = it.filter { char -> char.isDigit() || char in 'A'..'Z' || char in 'a'..'z' } },
+                            label = { Text("Nhập PIN (6 ký tự)") },
+                            singleLine = true
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                if (pairingState == com.example.uniremote.network.PairingState.WAITING_FOR_PIN) {
+                    Button(onClick = { vm.submitPairingPin(pinCode) }) {
+                        Text("Ghép nối")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { vm.cancelPairing() }) {
+                    Text("Hủy")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -82,7 +119,11 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     onConnect    = { device ->
                         isScanning = false
                         vm.stopScan()
-                        vm.connectTo(device)
+                        if (device.brand == com.example.uniremote.data.TvBrand.GOOGLE_TV && !knownDevices.any { it.id == device.id }) {
+                            vm.startGoogleTvPairing(device)
+                        } else {
+                            vm.connectTo(device)
+                        }
                     }
                 )
                 KnownDevicesSection(

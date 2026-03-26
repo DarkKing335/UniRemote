@@ -14,7 +14,9 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Tv
 import com.example.uniremote.ui.components.icons.MicIcon
-import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.ui.draw.shadow
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -202,7 +204,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     modifier = Modifier
                         .width(56.dp)
                         .fillMaxHeight(),
-                    icon = Icons.Filled.VolumeOff,
+                    icon = Icons.AutoMirrored.Filled.VolumeOff,
                     bg = Color(0xFF1E2631),
                     shape = RoundedCornerShape(12.dp),
                     onClick = { vm?.mute() }

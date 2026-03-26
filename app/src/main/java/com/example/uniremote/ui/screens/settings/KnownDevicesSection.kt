@@ -144,7 +144,7 @@ private fun KnownDeviceRow(
             contentAlignment = Alignment.Center
         ) {
             Icon(
-                if (device.brand == TvBrand.ANDROID) Icons.Filled.DesktopWindows else Icons.Filled.Tv,
+                if (device.brand == TvBrand.ANDROID) Icons.Filled.DesktopWindows else Icons.Filled.Tv,  // SONY shows Tv icon
                 null, tint = MaterialTheme.colorScheme.primary
             )
         }

@@ -38,6 +38,8 @@ import com.example.uniremote.ui.theme.PremiumBgStart
 import com.example.uniremote.viewmodel.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
 import kotlin.math.abs
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 
 // ── Top-level tab definition ────────────────────────────────────────────────
 private data class RemoteTab(
@@ -59,6 +61,13 @@ fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     var selectedRemoteTab by rememberSaveable { mutableStateOf(0) }
     val status by vm.connectionStatus.collectAsState()
     val isConnecting = status is ConnectionStatus.Connecting
+    val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        vm.toastMessage.collect { message ->
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Scaffold(
         topBar = { TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() }) },

@@ -15,8 +15,11 @@ data class TvDevice(
 )
 
 enum class TvBrand(val displayName: String, val defaultPort: Int) {
-    SAMSUNG("Samsung",    8001),
-    LG     ("LG",         3000),
-    ANDROID("Android TV", 5555),
-    UNKNOWN("Unknown TV", 8001)
+    SAMSUNG   ("Samsung",    8001),
+    LG        ("LG",         3000),
+    SONY      ("Sony",       50001),  // Sony Bravia (Android TV)
+    ANDROID   ("Android TV", 5555),   // ADB-based control
+    GOOGLE_TV ("Google TV",  6466),   // Google TV Remote Protocol (no ADB)
+    ROKU      ("Roku",       8060),   // Roku REST API
+    UNKNOWN   ("Unknown TV", 8001)
 }
