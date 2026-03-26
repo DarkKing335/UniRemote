@@ -75,7 +75,7 @@ class LgWebOsController(
     private var pointerSocket: WebSocket? = null
     private var connected = false
     private val msgId = AtomicInteger(0)
-    private val pendingRequests = mutableMapOf<String, CompletableDeferred<JSONObject>>()
+    private val pendingRequests = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
 
     // ── Registration payload ──────────────────────────────────────────────────
     private fun buildRegistration() = JSONObject().apply {
@@ -248,7 +248,8 @@ class LgWebOsController(
                 pointerSocket = null
             }
         })
-        kotlinx.coroutines.withTimeoutOrNull(3000L) { pointerSocketDeferred?.await() }
+        val ok = kotlinx.coroutines.withTimeoutOrNull(3000L) { pointerSocketDeferred?.await() }
+        if (ok != true) throw UnsupportedOperationException("Chưa thể kích hoạt chuột trên TV này. Hãy thử lại.")
     }
 
     override suspend fun moveMouse(dx: Float, dy: Float) {

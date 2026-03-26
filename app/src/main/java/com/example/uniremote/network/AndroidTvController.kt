@@ -68,11 +68,18 @@ class AndroidTvController(
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
+            // Force ADB port to 5555. mDNS often discovers port 6466 (RemoteV1), 8008 (DIAL), 
+            // or 80/20060 (SDCP), but wireless ADB is almost always running on port 5555.
+            val adbPort = if (device.port == 5555) 5555 else 5555
+
             // If keyPair is provided, Dadb handles the RSA auth handshake (prompting the TV if needed)
-            dadb = if (keyPair != null) {
-                Dadb.create(device.ip, device.port, keyPair)
-            } else {
-                Dadb.create(device.ip, device.port)
+            // Protect against infinite socket hangs if TV drops packets silently
+            dadb = kotlinx.coroutines.withTimeout(8000L) {
+                if (keyPair != null) {
+                    Dadb.create(device.ip, adbPort, keyPair)
+                } else {
+                    Dadb.create(device.ip, adbPort)
+                }
             }
             // Verify connection works
             val response = dadb?.shell("echo uniremote_ok")
@@ -91,6 +98,7 @@ class AndroidTvController(
             Log.d(TAG, "Shell: $cmd -> exitCode: ${res?.exitCode}")
         } catch (e: Exception) {
             Log.e(TAG, "Shell cmd failed: $cmd", e)
+            connected = false
         }
     }
 

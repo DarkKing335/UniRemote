@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,8 +39,7 @@ import com.example.uniremote.ui.theme.PremiumBgStart
 import com.example.uniremote.viewmodel.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
 import kotlin.math.abs
-import android.widget.Toast
-import androidx.compose.ui.platform.LocalContext
+
 
 // ── Top-level tab definition ────────────────────────────────────────────────
 private data class RemoteTab(
@@ -59,19 +59,20 @@ private val remoteTabs = listOf(
 @Composable
 fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     var selectedRemoteTab by rememberSaveable { mutableStateOf(0) }
-    val status by vm.connectionStatus.collectAsState()
+    val status by vm.connectionStatus.collectAsStateWithLifecycle()
     val isConnecting = status is ConnectionStatus.Connecting
-    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         vm.toastMessage.collect { message ->
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            snackbarHostState.showSnackbar(message)
         }
     }
 
     Scaffold(
         topBar = { TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() }) },
         bottomBar = { BottomNavBar(currentTab = NavigationTab.REMOTE, onTabSelected = onNavigate) },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Color.Transparent
     ) { paddingValues ->
         Column(

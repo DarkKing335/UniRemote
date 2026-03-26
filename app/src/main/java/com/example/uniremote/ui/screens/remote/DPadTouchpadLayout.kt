@@ -24,7 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -36,6 +38,8 @@ import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
 fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
+    val haptic = LocalHapticFeedback.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -102,7 +106,10 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
                     )
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures(onTap = { vm?.tapMouse() })
+                    detectTapGestures(onTap = { 
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm?.tapMouse() 
+                    })
                 }
         ) {
             // Dashed crosshair lines
@@ -145,7 +152,10 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
                 modifier = Modifier.clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = { vm?.sendKey(TvKey.MENU) }
+                    onClick = { 
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm?.sendKey(TvKey.MENU) 
+                    }
                 )
             ) {
                 Icon(
@@ -169,6 +179,7 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
 
 @Composable
 private fun FooterButton(label: String, color: Color, onClick: () -> Unit = {}) {
+    val haptic = LocalHapticFeedback.current
     Text(
         text = label,
         color = color,
@@ -178,7 +189,10 @@ private fun FooterButton(label: String, color: Color, onClick: () -> Unit = {}) 
         modifier = Modifier.clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = null,
-            onClick = onClick
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onClick()
+            }
         )
     )
 }

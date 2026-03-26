@@ -90,7 +90,8 @@ class SamsungTvController(override val device: TvDevice) : TvController {
         get() = Base64.encodeToString(APP_NAME.toByteArray(), Base64.NO_WRAP)
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
-        val url = "ws://${device.ip}:${device.port}/api/v2/channels/samsung.remote.control" +
+        val scheme = if (device.port == 8002) "wss" else "ws"
+        val url = "$scheme://${device.ip}:${device.port}/api/v2/channels/samsung.remote.control" +
                   "?name=$appNameB64"
         val request = Request.Builder().url(url).build()
         val deferred = CompletableDeferred<Boolean>()
@@ -120,7 +121,10 @@ class SamsungTvController(override val device: TvDevice) : TvController {
             }
         })
 
-        deferred.await()
+        // Add timeout around the deferred to prevent infinite hang if TV ignores prompt
+        kotlinx.coroutines.withTimeoutOrNull(8000L) {
+            deferred.await()
+        } ?: false
     }
 
     override fun disconnect() {

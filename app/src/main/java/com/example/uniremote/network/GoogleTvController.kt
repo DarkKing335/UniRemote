@@ -345,6 +345,14 @@ class GoogleTvController(
     override suspend fun getInstalledApps(): List<TvApp> = emptyList()
 
     override suspend fun launchApp(appId: String) {
-        Log.w(TAG, "launchApp not supported via Google TV Remote protocol")
+        throw UnsupportedOperationException("Google TV Remote Protocol không hỗ trợ mở app trực tiếp.")
+    }
+
+    override suspend fun moveMouse(dx: Float, dy: Float) {
+        throw UnsupportedOperationException("Google TV Remote Protocol không hỗ trợ chuột. Dùng tab D-Pad.")
+    }
+
+    override suspend fun tapMouse() {
+        throw UnsupportedOperationException("Google TV Remote Protocol không hỗ trợ chuột. Dùng tab D-Pad.")
     }
 }

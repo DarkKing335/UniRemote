@@ -4,11 +4,11 @@ import android.util.Log
 import com.example.uniremote.data.TvDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
 import org.xmlpull.v1.XmlPullParserFactory
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 private const val TAG = "RokuController"
 
@@ -20,10 +20,7 @@ private const val TAG = "RokuController"
  */
 class RokuController(override val device: TvDevice) : TvController {
 
-    private val client = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .build()
+    private val client = NetworkClient.instance
 
     private val baseUrl = "http://${device.ip}:${device.port}"
     private var isConnected = false
@@ -144,17 +141,38 @@ class RokuController(override val device: TvDevice) : TvController {
         post("$baseUrl/launch/$appId")
     }
 
-    private fun post(url: String) {
-        runCatching {
-            val request = Request.Builder()
-                .url(url)
-                .post("".toRequestBody())
-                .build()
-            client.newCall(request).execute().close()
+    private suspend fun post(url: String) {
+        kotlin.runCatching {
+            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
+                val request = Request.Builder()
+                    .url(url)
+                    .post("".toRequestBody())
+                    .build()
+                val call = client.newCall(request)
+                
+                cont.invokeOnCancellation { call.cancel() }
+                
+                call.enqueue(object : okhttp3.Callback {
+                    override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                        if (cont.isActive) cont.resumeWithException(e)
+                    }
+                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                        response.close()
+                        if (cont.isActive) cont.resume(Unit)
+                    }
+                })
+            }
         }.onFailure {
             Log.e(TAG, "POST failed for $url: ${it.message}")
-            // Connection is implicitly dropped
             isConnected = false
         }
+    }
+
+    override suspend fun moveMouse(dx: Float, dy: Float) {
+        throw UnsupportedOperationException("Roku TV không hỗ trợ điều khiển chuột. Dùng tab D-Pad để điều hướng.")
+    }
+
+    override suspend fun tapMouse() {
+        throw UnsupportedOperationException("Roku TV không hỗ trợ điều khiển chuột. Dùng tab D-Pad để điều hướng.")
     }
 }

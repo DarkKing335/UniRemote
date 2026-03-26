@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -25,6 +26,8 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -38,7 +41,7 @@ import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
 fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
-    val isMirroring by vm.isMirroring.collectAsState()
+    val isMirroring by vm.isMirroring.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -93,6 +96,7 @@ private val mediaItems = mapOf(
 
 @Composable
 fun CastingSection() {
+    val haptic = LocalHapticFeedback.current
     var selectedTabIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     val tabs = listOf("Photos", "Videos", "Music")
     val currentTab = tabs[selectedTabIndex]
@@ -181,7 +185,10 @@ fun CastingSection() {
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isSelected) surface_bright else Color.Transparent)
-                        .clickable { selectedTabIndex = index }
+                        .clickable { 
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            selectedTabIndex = index 
+                        }
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -214,7 +221,10 @@ fun CastingSection() {
                             else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
                             RoundedCornerShape(16.dp)
                         )
-                        .clickable { castingItem = item.label }
+                        .clickable { 
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            castingItem = item.label 
+                        }
                 ) {
                     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)))
                     Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.6f)))))
@@ -249,7 +259,10 @@ fun CastingSection() {
                                 else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
                                 RoundedCornerShape(16.dp)
                             )
-                            .clickable { castingItem = item.label },
+                            .clickable { 
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                castingItem = item.label 
+                            },
                         contentAlignment = Alignment.Center
                     ) {
                         Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)))
@@ -282,6 +295,7 @@ fun CastingSection() {
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
+    val haptic = LocalHapticFeedback.current
     var isLowLatency by remember { mutableStateOf(false) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "mirror_pulse")
@@ -385,7 +399,10 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
                             else
                                 Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer))
                         )
-                        .clickable { onToggle() }
+                        .clickable { 
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onToggle() 
+                        }
                         .padding(vertical = 20.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -426,7 +443,10 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
                     Box(
                         modifier = Modifier.width(48.dp).height(24.dp).clip(CircleShape)
                             .background(if (isLowLatency) MaterialTheme.colorScheme.primaryContainer else surface_bright)
-                            .clickable { isLowLatency = !isLowLatency }.padding(4.dp),
+                            .clickable { 
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                isLowLatency = !isLowLatency 
+                            }.padding(4.dp),
                         contentAlignment = if (isLowLatency) Alignment.CenterEnd else Alignment.CenterStart
                     ) {
                         Box(modifier = Modifier.size(16.dp).clip(CircleShape)

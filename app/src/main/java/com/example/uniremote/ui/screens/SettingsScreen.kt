@@ -6,6 +6,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
@@ -13,6 +14,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import com.example.uniremote.R
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
@@ -32,16 +34,19 @@ import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
 fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
-    val status          by vm.connectionStatus.collectAsState()
-    val connectedDevice by vm.connectedDevice.collectAsState()
-    val autoReconnect   by vm.autoReconnect.collectAsState(initial = true)
-    val discovered      by vm.discoveredDevices.collectAsState()
-    val knownDevices    by vm.knownDevices.collectAsState()
-    val currentSsid     by vm.currentSsid.collectAsState()
-    val userMacros      by vm.userMacros.collectAsState()
-    val pairingState    by vm.pairingState.collectAsState()
+    val status          by vm.connectionStatus.collectAsStateWithLifecycle()
+    val connectedDevice by vm.connectedDevice.collectAsStateWithLifecycle()
+    val autoReconnect   by vm.autoReconnect.collectAsStateWithLifecycle(initialValue = true)
+    val discovered      by vm.discoveredDevices.collectAsStateWithLifecycle()
+    val knownDevices    by vm.knownDevices.collectAsStateWithLifecycle()
+    val currentSsid     by vm.currentSsid.collectAsStateWithLifecycle()
+    val userMacros      by vm.userMacros.collectAsStateWithLifecycle()
+    val pairingState    by vm.pairingState.collectAsStateWithLifecycle()
     var isScanning      by remember { mutableStateOf(false) }
     val context         = LocalContext.current
+
+    val scrollState     = rememberScrollState()
+    val coroutineScope  = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         vm.toastMessage.collect { message ->
@@ -105,7 +110,7 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
         ) {
             Column(
                 modifier = Modifier.fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scrollState)
                     .padding(horizontal = 24.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
@@ -133,13 +138,17 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                         } else {
                             vm.connectTo(device)
                         }
+                        coroutineScope.launch { scrollState.animateScrollTo(0) }
                     }
                 )
                 KnownDevicesSection(
                     knownDevices    = knownDevices,
                     connectedDevice = connectedDevice,
                     currentSsid     = currentSsid,
-                    onConnect       = { vm.connectTo(it) },
+                    onConnect       = { 
+                        vm.connectTo(it)
+                        coroutineScope.launch { scrollState.animateScrollTo(0) }
+                    },
                     onForget        = { vm.forgetDevice(it) }
                 )
                 MacroManagerCard(

@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.PremiumBtn
 import com.example.uniremote.ui.components.PremiumDPad
+import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.components.remote.FadingStrip
 import com.example.uniremote.ui.components.remote.SlidingActionButtonStrip
 import com.example.uniremote.ui.theme.*
@@ -302,9 +303,7 @@ private fun PowerCircleButton(modifier: Modifier = Modifier, onClick: () -> Unit
             .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
             .border(1.dp, Color.Black.copy(alpha = 0.25f), CircleShape)
             .padding(2.dp)
-            .then(
-                Modifier.clickable(onClick = onClick)
-            ),
+            .remotePressable(shape = CircleShape, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Box(

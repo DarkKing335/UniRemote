@@ -12,10 +12,13 @@ import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.KeyboardHide
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -26,10 +29,11 @@ import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
 fun KeyboardLayout(vm: RemoteViewModel? = null) {
+    val haptic = LocalHapticFeedback.current
     var inputText by remember { mutableStateOf("") }
     var showDialog by remember { mutableStateOf(false) }
-    val status           by (vm?.connectionStatus ?: return).collectAsState()
-    val isTextInputActive by vm.isTextInputActive.collectAsState()
+    val status           by (vm?.connectionStatus ?: return).collectAsStateWithLifecycle()
+    val isTextInputActive by vm.isTextInputActive.collectAsStateWithLifecycle()
     val isConnected       = status is ConnectionStatus.Connected
 
     // ── Error dialog: TV không có ô nhập văn bản ─────────────────────────
@@ -77,7 +81,10 @@ fun KeyboardLayout(vm: RemoteViewModel? = null) {
                     else Color.White.copy(alpha = 0.15f),
                     CircleShape
                 )
-                .clickable { vm.setTextInputActive(!isTextInputActive) }
+                .clickable { 
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    vm.setTextInputActive(!isTextInputActive) 
+                }
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)

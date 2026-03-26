@@ -57,7 +57,7 @@ class DeviceDiscovery(private val context: Context) {
      * Cancel the collecting coroutine to stop discovery cleanly.
      */
     fun discover(): Flow<List<TvDevice>> = callbackFlow {
-        val discovered       = mutableMapOf<String, TvDevice>()
+        val discovered       = java.util.concurrent.ConcurrentHashMap<String, TvDevice>()
         val listeners        = mutableListOf<NsdManager.DiscoveryListener>()
         val startedListeners = mutableSetOf<NsdManager.DiscoveryListener>()
 

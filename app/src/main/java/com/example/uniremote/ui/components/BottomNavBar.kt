@@ -87,7 +87,8 @@ private fun NavItem(
     onClick: () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+
     val modifier = if (isSelected) {
         Modifier
             .clip(CircleShape)
@@ -108,7 +109,10 @@ private fun NavItem(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    onClick()
+                }
             )
             .then(modifier)
             .padding(12.dp),

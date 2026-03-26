@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,21 +37,22 @@ import com.example.uniremote.data.UserMacro
 import com.example.uniremote.network.TvAppUiModel
 import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.BottomNavBar
-import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
+import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.*
 import com.example.uniremote.viewmodel.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
+import com.example.uniremote.ui.components.NavigationTab
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
 fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
-    val apps        by vm.installedApps.collectAsState()
-    val isLoading   by vm.isLoadingApps.collectAsState()
-    val status      by vm.connectionStatus.collectAsState()
-    val userMacros  by vm.userMacros.collectAsState()
+    val apps        by vm.installedApps.collectAsStateWithLifecycle()
+    val isLoading   by vm.isLoadingApps.collectAsStateWithLifecycle()
+    val status      by vm.connectionStatus.collectAsStateWithLifecycle()
+    val userMacros  by vm.userMacros.collectAsStateWithLifecycle()
     val isConnected  = status is ConnectionStatus.Connected
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -383,11 +385,10 @@ fun AppButton(modifier: Modifier, icon: ImageVector, color: Color, label: String
     Column(
         modifier = modifier
             .aspectRatio(1f)
-            .shadow(4.dp, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp))
             .background(GlassBtnBg)
             .border(1.dp, GlassBtnBorder, RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick),
+            .remotePressable(shape = RoundedCornerShape(16.dp), onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -482,7 +483,6 @@ fun MacroCard(
     Box(
         modifier = modifier
             .height(200.dp)
-            .shadow(8.dp, RoundedCornerShape(24.dp))
             .clip(RoundedCornerShape(24.dp))
             .background(if (isRunning) color.copy(alpha = 0.15f) else GlassBtnBg)
             .border(
@@ -490,10 +490,15 @@ fun MacroCard(
                 if (isRunning) color.copy(alpha = 0.4f) else GlassBtnBorder,
                 RoundedCornerShape(24.dp)
             )
-            .clickable {
-                isRunning = !isRunning
-                if (isRunning) onRun()
-            }
+            .remotePressable(
+                shape = RoundedCornerShape(24.dp), 
+                raisedElevation = 8.dp, 
+                pressedElevation = 2.dp,
+                onClick = {
+                    isRunning = !isRunning
+                    if (isRunning) onRun()
+                }
+            )
     ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(24.dp),

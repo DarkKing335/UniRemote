@@ -8,10 +8,13 @@ import com.example.uniremote.network.TvKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_preferences")
 
 class AppPreferences(private val context: Context) {
+    private val gson = Gson()
 
     companion object {
         // Legacy single-device keys (kept for migration compatibility)
@@ -45,7 +48,9 @@ class AppPreferences(private val context: Context) {
         context.dataStore.edit { prefs -> prefs[KEY_AUTO_RECONNECT] = enabled }
     }
 
-    suspend fun getAutoReconnectOnce(): Boolean = autoReconnect.first()
+    suspend fun getAutoReconnectOnce(): Boolean {
+        return context.dataStore.data.map { prefs -> prefs[KEY_AUTO_RECONNECT] ?: true }.first()
+    }
 
     // ── Legacy single last-device (used in ViewModel for LG pairing) ──────────
 
@@ -72,7 +77,19 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    suspend fun getLastDeviceOnce(): TvDevice? = lastDevice.first()
+    suspend fun getLastDeviceOnce(): TvDevice? {
+        return context.dataStore.data.map { prefs ->
+            val ip = prefs[KEY_LAST_DEVICE_IP] ?: return@map null
+            TvDevice(
+                id    = prefs[KEY_LAST_DEVICE_ID]    ?: ip,
+                name  = prefs[KEY_LAST_DEVICE_NAME]  ?: "TV",
+                brand = runCatching { TvBrand.valueOf(prefs[KEY_LAST_DEVICE_BRAND] ?: "") }.getOrElse { TvBrand.UNKNOWN },
+                ip    = ip,
+                mac   = prefs[KEY_LAST_DEVICE_MAC]   ?: "",
+                port  = prefs[KEY_LAST_DEVICE_PORT]  ?: 8001
+            )
+        }.first()
+    }
 
     // ── Known devices (multi-device persistence) ──────────────────────────────
 
@@ -80,7 +97,11 @@ class AppPreferences(private val context: Context) {
         deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "")
     }
 
-    suspend fun getKnownDevicesOnce(): List<KnownDevice> = knownDevices.first()
+    suspend fun getKnownDevicesOnce(): List<KnownDevice> {
+        return context.dataStore.data.map { prefs ->
+            deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "")
+        }.first()
+    }
 
     suspend fun upsertKnownDevice(device: KnownDevice) {
         context.dataStore.edit { prefs ->
@@ -124,17 +145,23 @@ class AppPreferences(private val context: Context) {
     }
 
     // ── Known device serialization ────────────────────────────────────────────
-    // Format per device: id^^name^^brand^^ip^^mac^^port^^ssid^^lastConnectedMs^^lastSeenMs^^isOnline
 
-    private fun serializeKnownDevices(list: List<KnownDevice>): String =
-        list.joinToString(DEVICE_SEP) { d ->
-            listOf(d.id, d.name, d.brand, d.ip, d.mac, d.port.toString(),
-                d.ssid, d.lastConnectedMs.toString(), d.lastSeenMs.toString(),
-                if (d.isOnline) "1" else "0"
-            ).joinToString(FIELD_SEP)
-        }
+    private fun serializeKnownDevices(list: List<KnownDevice>): String = gson.toJson(list)
 
     private fun deserializeKnownDevices(raw: String): List<KnownDevice> {
+        if (raw.isBlank()) return emptyList()
+        if (!raw.trim().startsWith("[")) {
+            return deserializeKnownDevicesLegacy(raw)
+        }
+        return try {
+            val type = object : TypeToken<List<KnownDevice>>() {}.type
+            gson.fromJson(raw, type)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun deserializeKnownDevicesLegacy(raw: String): List<KnownDevice> {
         if (raw.isBlank()) return emptyList()
         return raw.split(DEVICE_SEP).mapNotNull { entry ->
             val p = entry.split(FIELD_SEP)
@@ -177,14 +204,22 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    private fun serializeMacros(list: List<UserMacro>): String =
-        list.joinToString(MACRO_SEP) { m ->
-            listOf(m.id, m.name, m.description, m.icon,
-                m.keys.joinToString(KEY_SEP) { it.name }
-            ).joinToString(MACRO_FIELD)
-        }
+    private fun serializeMacros(list: List<UserMacro>): String = gson.toJson(list)
 
     private fun deserializeMacros(raw: String): List<UserMacro> {
+        if (raw.isBlank()) return emptyList()
+        if (!raw.trim().startsWith("[")) {
+            return deserializeMacrosLegacy(raw)
+        }
+        return try {
+            val type = object : TypeToken<List<UserMacro>>() {}.type
+            gson.fromJson(raw, type)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun deserializeMacrosLegacy(raw: String): List<UserMacro> {
         if (raw.isBlank()) return emptyList()
         return raw.split(MACRO_SEP).mapNotNull { entry ->
             val parts = entry.split(MACRO_FIELD)
