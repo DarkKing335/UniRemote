@@ -17,7 +17,10 @@ import java.util.concurrent.TimeUnit
  *
  * Protocol docs: https://github.com/Toxblh/samsung-tv-control
  */
-class SamsungTvController(override val device: TvDevice) : TvController {
+class SamsungTvController(
+    override val device: TvDevice,
+    private val onTokenReceived: (String) -> Unit = {}
+) : TvController {
 
     companion object {
         private const val APP_NAME = "UniRemote"
@@ -77,7 +80,7 @@ class SamsungTvController(override val device: TvDevice) : TvController {
         )
     }
 
-    private val client = OkHttpClient.Builder()
+    private val client = NetworkClient.instance.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .build()
@@ -91,8 +94,9 @@ class SamsungTvController(override val device: TvDevice) : TvController {
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         val scheme = if (device.port == 8002) "wss" else "ws"
+        val tokenParam = if (!device.token.isNullOrEmpty()) "&token=${device.token}" else ""
         val url = "$scheme://${device.ip}:${device.port}/api/v2/channels/samsung.remote.control" +
-                  "?name=$appNameB64"
+                  "?name=$appNameB64$tokenParam"
         val request = Request.Builder().url(url).build()
         val deferred = CompletableDeferred<Boolean>()
 
@@ -106,6 +110,11 @@ class SamsungTvController(override val device: TvDevice) : TvController {
                 val json = runCatching { JSONObject(text) }.getOrNull() ?: return
                 val event = json.optString("event")
                 if (event == "ms.channel.connect") {
+                    val data = json.optJSONObject("data")
+                    val token = data?.optString("token")
+                    if (!token.isNullOrEmpty() && token != device.token) {
+                        onTokenReceived(token)
+                    }
                     connected = true
                     if (!deferred.isCompleted) deferred.complete(true)
                 } else if (event == "ms.channel.unauthorized") {
@@ -122,9 +131,15 @@ class SamsungTvController(override val device: TvDevice) : TvController {
         })
 
         // Add timeout around the deferred to prevent infinite hang if TV ignores prompt
-        kotlinx.coroutines.withTimeoutOrNull(8000L) {
+        val result = kotlinx.coroutines.withTimeoutOrNull(8000L) {
             deferred.await()
         } ?: false
+
+        if (!result) {
+            webSocket?.cancel()
+            disconnect()
+        }
+        result
     }
 
     override fun disconnect() {

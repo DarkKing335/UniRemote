@@ -17,10 +17,8 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Handles the connection lifecycle, protocol initialization, and command dispatching
  * to TvControllers, reducing the RemoteViewModel God Object anti-pattern.
  */
-class DeviceConnectionManager(
-    private val savedLgPairingKey: String?,
-    private val onLgPairingKeyReceived: (String) -> Unit
-) {
+class DeviceConnectionManager {
+    var onTokenReceived: ((String) -> Unit)? = null
     private val TAG = "DeviceConnManager"
     private val CONNECT_TIMEOUT_MS = 4_000L
 
@@ -40,8 +38,18 @@ class DeviceConnectionManager(
     suspend fun tryConnectSilently(device: TvDevice): Boolean {
         return runCatching {
             controller?.disconnect()
-            controller = buildController(device)
-            controller!!.connect()
+            val controllers = buildControllerChain(device)
+            for (ctrl in controllers) {
+                val success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
+                    runCatching { ctrl.connect() }.getOrElse { false }
+                } ?: false
+                if (success) {
+                    controller = ctrl
+                    return@runCatching true
+                }
+                ctrl.disconnect()
+            }
+            false
         }.getOrElse {
             Log.w(TAG, "tryConnect error: ${it.message}")
             false
@@ -54,11 +62,20 @@ class DeviceConnectionManager(
             _connectedDevice.value = device
 
             controller?.disconnect()
-            controller = buildController(device)
-
-            val success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
-                runCatching { controller!!.connect() }.getOrElse { false }
-            } ?: false
+            
+            val controllers = buildControllerChain(device)
+            var success = false
+            for (ctrl in controllers) {
+                success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
+                    runCatching { ctrl.connect() }.getOrElse { false }
+                } ?: false
+                
+                if (success) {
+                    controller = ctrl
+                    break
+                }
+                ctrl.disconnect()
+            }
 
             if (success) {
                 _connectionStatus.value = ConnectionStatus.Connected
@@ -128,18 +145,20 @@ class DeviceConnectionManager(
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
-    private fun buildController(device: TvDevice): TvController = when (device.brand) {
-        TvBrand.SAMSUNG   -> SamsungTvController(device)
-        TvBrand.LG        -> LgWebOsController(
-            device               = device,
-            savedPairingKey      = savedLgPairingKey,
-            onPairingKeyReceived = { onLgPairingKeyReceived(it) }
+    private fun buildControllerChain(device: TvDevice): List<TvController> = when (device.brand) {
+        TvBrand.SAMSUNG   -> listOf(SamsungTvController(device) { token -> onTokenReceived?.invoke(token) })
+        TvBrand.LG        -> listOf(LgWebOsController(device) { token -> onTokenReceived?.invoke(token) })
+        TvBrand.FIRE_TV   -> listOf(AndroidTvController(device))
+        TvBrand.ROKU      -> listOf(RokuController(device))
+        
+        TvBrand.GOOGLE_TV, 
+        TvBrand.ANDROID, 
+        TvBrand.SONY, 
+        TvBrand.XIAOMI    -> listOf(
+            GoogleTvController(device) { state -> _pairingState.value = state },
+            AndroidTvController(device)
         )
-        TvBrand.SONY      -> AndroidTvController(device)
-        TvBrand.ANDROID   -> AndroidTvController(device)
-        TvBrand.GOOGLE_TV -> GoogleTvController(device) { state -> _pairingState.value = state }
-        TvBrand.ROKU      -> RokuController(device)
-        TvBrand.UNKNOWN   -> SamsungTvController(device)
+        TvBrand.UNKNOWN   -> listOf(SamsungTvController(device))
     }
 
     fun onCleared() {

@@ -70,7 +70,7 @@ class AndroidTvController(
         runCatching {
             // Force ADB port to 5555. mDNS often discovers port 6466 (RemoteV1), 8008 (DIAL), 
             // or 80/20060 (SDCP), but wireless ADB is almost always running on port 5555.
-            val adbPort = if (device.port == 5555) 5555 else 5555
+            val adbPort = 5555
 
             // If keyPair is provided, Dadb handles the RSA auth handshake (prompting the TV if needed)
             // Protect against infinite socket hangs if TV drops packets silently

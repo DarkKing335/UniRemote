@@ -133,7 +133,15 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     onConnect    = { device ->
                         isScanning = false
                         vm.stopScan()
-                        if (device.brand == com.example.uniremote.data.TvBrand.GOOGLE_TV && !knownDevices.any { it.id == device.id }) {
+                        
+                        val isGoogleProtocol = device.brand in listOf(
+                            com.example.uniremote.data.TvBrand.GOOGLE_TV,
+                            com.example.uniremote.data.TvBrand.ANDROID,
+                            com.example.uniremote.data.TvBrand.SONY,
+                            com.example.uniremote.data.TvBrand.XIAOMI
+                        )
+
+                        if (isGoogleProtocol && !knownDevices.any { it.id == device.id }) {
                             vm.startGoogleTvPairing(device)
                         } else {
                             vm.connectTo(device)

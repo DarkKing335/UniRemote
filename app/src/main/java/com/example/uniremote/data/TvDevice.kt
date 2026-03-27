@@ -11,15 +11,18 @@ data class TvDevice(
     val mac: String = "",      // MAC address for Wake-on-LAN (empty = unknown)
     val port: Int = brand.defaultPort,
     val ssid: String = "",     // WiFi SSID at time of last connection
-    val lastConnectedMs: Long = 0L
+    val lastConnectedMs: Long = 0L,
+    val token: String? = null  // Auth token / pairing key (e.g. Samsung/LG WebOS)
 )
 
 enum class TvBrand(val displayName: String, val defaultPort: Int) {
     SAMSUNG   ("Samsung",    8001),
     LG        ("LG",         3000),
-    SONY      ("Sony",       50001),  // Sony Bravia (Android TV)
-    ANDROID   ("Android TV", 5555),   // ADB-based control
-    GOOGLE_TV ("Google TV",  6466),   // Google TV Remote Protocol (no ADB)
+    SONY      ("Sony",       50001),  // Sony Bravia 
+    ANDROID   ("Android TV", 6466),   // Generic Android TV
+    GOOGLE_TV ("Google TV",  6466),   // Google TV Remote Protocol
+    XIAOMI    ("Xiaomi",     6466),   // Xiaomi customized Android TV
+    FIRE_TV   ("Fire TV",    5555),   // Amazon Fire TV
     ROKU      ("Roku",       8060),   // Roku REST API
     UNKNOWN   ("Unknown TV", 8001)
 }

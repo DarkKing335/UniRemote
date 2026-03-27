@@ -19,8 +19,7 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class LgWebOsController(
     override val device: TvDevice,
-    private val savedPairingKey: String? = null,
-    val onPairingKeyReceived: ((String) -> Unit)? = null
+    private val onTokenReceived: (String) -> Unit = {}
 ) : TvController {
 
     companion object {
@@ -66,7 +65,7 @@ class LgWebOsController(
         )
     }
 
-    private val client = OkHttpClient.Builder()
+    private val client = NetworkClient.instance.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
@@ -82,7 +81,7 @@ class LgWebOsController(
         put("type", "register")
         put("id", "register_0")
         put("payload", JSONObject().apply {
-            put("client-key", savedPairingKey ?: "")
+            put("client-key", device.token ?: "")
             put("pairingType", "PROMPT")
             put("manifest", JSONObject().apply {
                 put("manifestVersion", 1)
@@ -121,7 +120,7 @@ class LgWebOsController(
                     "registered" -> {
                         // Pairing accepted – extract client key if provided
                         val key = json.optJSONObject("payload")?.optString("client-key")
-                        if (!key.isNullOrEmpty()) onPairingKeyReceived?.invoke(key)
+                        if (!key.isNullOrEmpty() && key != device.token) onTokenReceived(key)
                         connected = true
                         if (!deferred.isCompleted) deferred.complete(true)
                     }
@@ -152,6 +151,7 @@ class LgWebOsController(
                 deferred.await()
             }
         } catch (e: Exception) {
+            webSocket?.cancel()
             disconnect()
             false
         }

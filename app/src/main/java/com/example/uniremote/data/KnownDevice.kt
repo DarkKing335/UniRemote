@@ -15,7 +15,8 @@ data class KnownDevice(
     val ssid:            String,         // WiFi SSID at last successful connect
     val lastConnectedMs: Long,           // epoch ms of last successful connection
     val lastSeenMs:      Long = 0L,      // epoch ms of last NSD scan detection
-    val isOnline:        Boolean = false
+    val isOnline:        Boolean = false,
+    val token:           String? = null  // Auth token / pairing key
 )
 
 // ── Mapping ───────────────────────────────────────────────────────────────────
@@ -28,7 +29,8 @@ fun KnownDevice.toDomain(): TvDevice = TvDevice(
     mac             = mac,
     port            = port,
     ssid            = ssid,
-    lastConnectedMs = lastConnectedMs
+    lastConnectedMs = lastConnectedMs,
+    token           = token
 )
 
 fun TvDevice.toKnownDevice(ssid: String, nowMs: Long, isOnline: Boolean = true) = KnownDevice(
@@ -41,5 +43,6 @@ fun TvDevice.toKnownDevice(ssid: String, nowMs: Long, isOnline: Boolean = true) 
     ssid            = ssid,
     lastConnectedMs = nowMs,
     lastSeenMs      = nowMs,
-    isOnline        = isOnline
+    isOnline        = isOnline,
+    token           = token
 )

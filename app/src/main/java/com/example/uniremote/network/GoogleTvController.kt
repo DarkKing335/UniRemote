@@ -92,8 +92,20 @@ class GoogleTvController(
         val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
         kmf.init(ks, null)
         val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
+            private var pinnedCertHash: String? = null
+            
             override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
-            override fun checkServerTrusted(c: Array<X509Certificate>, a: String) {}
+            override fun checkServerTrusted(c: Array<X509Certificate>, a: String) {
+                if (c.isEmpty()) throw CertificateException("No certificate presented")
+                val hash = MessageDigest.getInstance("SHA-256")
+                    .digest(c[0].encoded).joinToString("") { "%02x".format(it) }
+                    
+                if (pinnedCertHash == null) {
+                    pinnedCertHash = hash
+                } else if (pinnedCertHash != hash) {
+                    throw CertificateException("Certificate pinning mismatch")
+                }
+            }
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         })
         return SSLContext.getInstance("TLS").also { it.init(kmf.keyManagers, trustAll, SecureRandom()) }
@@ -262,24 +274,31 @@ class GoogleTvController(
 
             Log.i(TAG, "Google TV READY")
 
-            // State 9 main loop — 50ms poll
-            sock.soTimeout = 50
-            while (isActive) {
-                // Check outgoing command queue
-                val cmd = cmdChannel.tryReceive().getOrNull()
-                if (cmd != null) {
-                    sock.soTimeout = 5_000
-                    when (cmd) {
-                        is CtrlCmd.Key -> send(sock, msgKey(cmd.code))
-                        CtrlCmd.Exit   -> break
+            // State 9: Separation of Read and Write pipelines
+            sock.soTimeout = 0 // Blocking read
+
+            val receiverJob = launch(Dispatchers.IO) {
+                while (isActive) {
+                    try {
+                        val msg = recv(sock)
+                        if (msg.isNotEmpty() && msg[0].toInt() and 0xFF == 0x42) send(sock, msgPong())
+                    } catch (e: java.net.SocketException) {
+                        break
+                    } catch (e: Exception) {
+                        break
                     }
-                    sock.soTimeout = 50
                 }
-                // Read incoming (SocketTimeoutException = no data, that's fine)
-                try {
-                    val msg = recv(sock)
-                    if (msg.isNotEmpty() && msg[0].toInt() and 0xFF == 0x42) send(sock, msgPong())
-                } catch (_: java.net.SocketTimeoutException) { }
+            }
+
+            while (isActive) {
+                val cmd = cmdChannel.receive() // Suspends efficiently
+                when (cmd) {
+                    is CtrlCmd.Key -> send(sock, msgKey(cmd.code))
+                    CtrlCmd.Exit   -> {
+                        receiverJob.cancel()
+                        break
+                    }
+                }
             }
         } catch (e: CancellationException) { throw e
         } catch (e: Exception) { Log.e(TAG, "Session error: ${e.message}") }

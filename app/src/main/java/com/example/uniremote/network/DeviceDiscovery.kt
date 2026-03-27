@@ -69,11 +69,14 @@ class DeviceDiscovery(private val context: Context) {
         val isResolving = java.util.concurrent.atomic.AtomicBoolean(false)
 
         fun processResolveQueue() {
-            if (isResolving.get()) return
-            val task = resolveQueue.poll() ?: return
+            if (!isResolving.compareAndSet(false, true)) return
+            val task = resolveQueue.poll()
+            if (task == null) {
+                isResolving.set(false)
+                return
+            }
             val brand = task.brand
             val info = task.info
-            isResolving.set(true)
             nsdManager.resolveService(info, object : NsdManager.ResolveListener {
                 override fun onResolveFailed(svcInfo: NsdServiceInfo, code: Int) {
                     Log.w(TAG, "Resolve failed: ${svcInfo.serviceName} code=$code")
@@ -92,11 +95,14 @@ class DeviceDiscovery(private val context: Context) {
                         ?.let { String(it) } ?: ""
                     val id   = DeviceIdUtil.stableId(mac = mac, ip = ip, name = name)
 
-                    // Detect Sony more precisely
                     val detectedBrand = when {
                         brand == TvBrand.GOOGLE_TV -> brand // Force Google TV protocol
                         name.contains("sony",   ignoreCase = true) -> TvBrand.SONY
                         name.contains("bravia", ignoreCase = true) -> TvBrand.SONY
+                        name.contains("xiaomi", ignoreCase = true) -> TvBrand.XIAOMI
+                        name.contains("mi tv",  ignoreCase = true) -> TvBrand.XIAOMI
+                        name.contains("fire",   ignoreCase = true) -> TvBrand.FIRE_TV
+                        name.contains("amazon", ignoreCase = true) -> TvBrand.FIRE_TV
                         else -> brand
                     }
 

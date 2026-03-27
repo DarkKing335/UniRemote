@@ -26,10 +26,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private val discovery = DeviceDiscovery(application)
 
     // Architecture Fix: Decoupled God-Object TvController management into a dedicated manager class
-    private val connectionManager = DeviceConnectionManager(
-        savedLgPairingKey = null,
-        onLgPairingKeyReceived = { /* Future: save auth token securely */ }
-    )
+    private val connectionManager = DeviceConnectionManager()
 
     private val autoConnectUseCase = AutoConnectUseCase(repo, connectionManager)
 
@@ -66,7 +63,10 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     val userMacros: StateFlow<List<UserMacro>> = prefs.userMacros
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    private val _toastMessage = MutableSharedFlow<String>()
+    private val _toastMessage = MutableSharedFlow<String>(
+        extraBufferCapacity = 5,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
     val toastMessage: SharedFlow<String> = _toastMessage.asSharedFlow()
 
     private var discoveryJob: Job? = null
@@ -74,6 +74,15 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private var connectJob: Job? = null
 
     init {
+        connectionManager.onTokenReceived = { token ->
+            viewModelScope.launch {
+                val currentDevice = connectedDevice.value
+                if (currentDevice != null) {
+                    val updated = currentDevice.copy(token = token)
+                    repo.saveDevice(updated)
+                }
+            }
+        }
         System.setProperty("user.home", application.filesDir.absolutePath)
 
         connectJob = viewModelScope.launch(Dispatchers.IO) {
@@ -91,7 +100,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         if (connected) {
             loadInstalledApps()
         } else {
-            _toastMessage.emit("Không tìm thấy TV quen thuộc nào bật gần đây. Vui lòng chọn kết nối thủ công.")
+            _toastMessage.tryEmit("Không tìm thấy TV quen thuộc nào bật gần đây. Vui lòng chọn kết nối thủ công.")
         }
     }
 
@@ -105,7 +114,7 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 loadInstalledApps()
             } else {
                 repo.markDeviceOffline(device.id)
-                _toastMessage.emit("Không thể kết nối với ${device.name}. Vui lòng kiểm tra lại TV.")
+                _toastMessage.tryEmit("Không thể kết nối với ${device.name}. Vui lòng kiểm tra lại TV.")
             }
         }
     }
@@ -115,7 +124,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             if (connectionManager.startGoogleTvPairing(device)) {
                 connectTo(device)
             } else {
-                _toastMessage.emit("Ghép nối thất bại. Đảm bảo TV đang bật màn hình.")
+                _toastMessage.tryEmit("Ghép nối chuẩn thất bại. Đang thử kết nối dự phòng...")
+                connectTo(device)
             }
         }
     }
@@ -136,12 +146,12 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun sendKey(key: TvKey) = viewModelScope.launch {
         runCatching { connectionManager.sendKey(key) }
-            .onFailure { _toastMessage.emit("Tín hiệu bị mất, chờ tivi phản hồi.") }
+            .onFailure { _toastMessage.tryEmit("Tín hiệu bị mất, chờ tivi phản hồi.") }
     }
 
     fun sendText(text: String) = viewModelScope.launch {
         runCatching { connectionManager.sendText(text) }
-            .onFailure { _toastMessage.emit(it.message ?: "Lỗi gửi phím cứng") }
+            .onFailure { _toastMessage.tryEmit(it.message ?: "Lỗi gửi phím cứng") }
     }
 
     fun sendTextAndEnter(text: String) = viewModelScope.launch {
@@ -149,17 +159,17 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
             connectionManager.sendText(text)
             delay(300)
             connectionManager.sendKey(TvKey.OK)
-        }.onFailure { _toastMessage.emit("Lỗi gửi đoạn văn bản") }
+        }.onFailure { _toastMessage.tryEmit("Lỗi gửi đoạn văn bản") }
     }
 
     fun moveMouse(dx: Float, dy: Float) = viewModelScope.launch {
         runCatching { connectionManager.moveMouse(dx, dy) }
-            .onFailure { if (it is UnsupportedOperationException) _toastMessage.emit("TV này không hỗ trợ di chuột") }
+            .onFailure { if (it is UnsupportedOperationException) _toastMessage.tryEmit("TV này không hỗ trợ di chuột") }
     }
 
     fun tapMouse() = viewModelScope.launch {
         runCatching { connectionManager.tapMouse() }
-            .onFailure { if (it is UnsupportedOperationException) _toastMessage.emit("TV này không hỗ trợ click chuột") }
+            .onFailure { if (it is UnsupportedOperationException) _toastMessage.tryEmit("TV này không hỗ trợ click chuột") }
     }
 
     fun volumeUp()    = sendKey(TvKey.VOL_UP)

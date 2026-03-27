@@ -73,6 +73,8 @@ class DeviceRepository(
         onSsid.forEach { entity ->
             if (scannedIds.contains(entity.id)) {
                 prefs.markKnownDeviceOnline(entity.id)
+            } else {
+                prefs.markKnownDeviceOffline(entity.id)
             }
         }
     }
