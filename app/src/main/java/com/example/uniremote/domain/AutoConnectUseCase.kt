@@ -2,6 +2,7 @@ package com.example.uniremote.domain
 
 import com.example.uniremote.data.DeviceRepository
 import com.example.uniremote.network.DeviceConnectionManager
+import kotlinx.coroutines.delay
 
 /**
  * Clean Architecture Domain Use Case: Handles the logic of automatically
@@ -20,11 +21,12 @@ class AutoConnectUseCase(
             if (connectionManager.tryConnectSilently(device)) {
                 return true
             }
-            // Single retry
+            // Single retry with back-off — avoids hammering the network on transient failures
+            delay(500L)
             if (connectionManager.tryConnectSilently(device)) {
                 return true
             }
-            // Mark unreachable
+            // Mark unreachable after both attempts failed
             repository.markDeviceOffline(device.id)
         }
 
@@ -32,3 +34,4 @@ class AutoConnectUseCase(
         return false
     }
 }
+

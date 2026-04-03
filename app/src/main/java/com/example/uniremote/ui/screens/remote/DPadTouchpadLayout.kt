@@ -37,7 +37,7 @@ import com.example.uniremote.ui.theme.PowerGlow
 import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
+fun DPadTouchpadLayout(vm: RemoteViewModel) {
     val haptic = LocalHapticFeedback.current
 
     Column(
@@ -76,7 +76,7 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
                     .background(PowerGlow.copy(alpha = 0.15f))
                     .border(1.dp, PowerGlow.copy(alpha = 0.35f), CircleShape)
                     .remotePressable(shape = CircleShape, raisedElevation = 8.dp, pressedElevation = 1.dp,
-                        onClick = { vm?.power() }),
+                        onClick = { vm.power() }),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -101,14 +101,14 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDrag = { _, dragAmount ->
-                            vm?.moveMouse(dragAmount.x, dragAmount.y)
+                            vm.moveMouse(dragAmount.x, dragAmount.y)
                         }
                     )
                 }
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = { 
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm?.tapMouse() 
+                        vm.tapMouse() 
                     })
                 }
         ) {
@@ -146,7 +146,7 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            FooterButton(label = "BACK", color = CyanText, onClick = { vm?.sendKey(TvKey.BACK) })
+            FooterButton(label = "BACK", color = CyanText, onClick = { vm.sendKey(TvKey.BACK) })
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.clickable(
@@ -154,7 +154,7 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
                     indication = null,
                     onClick = { 
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm?.sendKey(TvKey.MENU) 
+                        vm.sendKey(TvKey.MENU) 
                     }
                 )
             ) {
@@ -172,7 +172,7 @@ fun DPadTouchpadLayout(vm: RemoteViewModel? = null) {
                     letterSpacing = 0.5.sp
                 )
             }
-            FooterButton(label = "HOME", color = CyanText, onClick = { vm?.sendKey(TvKey.HOME) })
+            FooterButton(label = "HOME", color = CyanText, onClick = { vm.sendKey(TvKey.HOME) })
         }
     }
 }

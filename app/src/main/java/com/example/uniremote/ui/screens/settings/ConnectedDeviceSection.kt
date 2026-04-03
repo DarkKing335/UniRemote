@@ -35,7 +35,7 @@ import com.example.uniremote.R
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.ui.theme.*
-import com.example.uniremote.viewmodel.ConnectionStatus
+import com.example.uniremote.domain.ConnectionStatus
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ConnectedDeviceSection

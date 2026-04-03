@@ -83,10 +83,12 @@ val tvKeyLabels: Map<TvKey, String> = mapOf(
 
 @Composable
 fun MacroManagerCard(
-    macros:   List<UserMacro>,
-    onSave:   (UserMacro) -> Unit,
-    onDelete: (String) -> Unit,
-    onRun:    (String) -> Unit
+    macros:        List<UserMacro>,
+    isMacroRunning: Boolean,
+    runningMacroId: String?,
+    onSave:        (UserMacro) -> Unit,
+    onDelete:      (String) -> Unit,
+    onRun:         (String) -> Unit
 ) {
     var showManager by remember { mutableStateOf(false) }
 
@@ -160,7 +162,7 @@ fun MacroManagerCard(
                             Icon(Icons.Filled.Close, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
                         }
                     }
-                    MacroManagerSection(macros = macros, onSave = onSave, onDelete = onDelete, onRun = onRun)
+                    MacroManagerSection(macros = macros, isMacroRunning = isMacroRunning, runningMacroId = runningMacroId, onSave = onSave, onDelete = onDelete, onRun = onRun)
                 }
             }
         }
@@ -173,14 +175,15 @@ fun MacroManagerCard(
 
 @Composable
 fun MacroManagerSection(
-    macros:   List<UserMacro>,
-    onSave:   (UserMacro) -> Unit,
-    onDelete: (String) -> Unit,
-    onRun:    (String) -> Unit
+    macros:         List<UserMacro>,
+    isMacroRunning: Boolean,       // real state from ViewModel StateFlow
+    runningMacroId: String?,       // which macro is running (null if none)
+    onSave:         (UserMacro) -> Unit,
+    onDelete:       (String) -> Unit,
+    onRun:          (String) -> Unit
 ) {
     var showDialog by remember { mutableStateOf(false) }
     var editMacro  by remember { mutableStateOf<UserMacro?>(null) }
-    val runningMacros = remember { mutableStateOf<Set<String>>(emptySet()) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // Header
@@ -235,14 +238,15 @@ fun MacroManagerSection(
                 macros.chunked(2).forEach { row ->
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         row.forEach { macro ->
-                            val isRunning = runningMacros.value.contains(macro.id)
+                            // Bug fix: use real VM isMacroRunning rather than a local heuristic timer.
+                            // A macro is 'running' only when it is THIS macro and the ViewModel says so.
+                            val isRunning = isMacroRunning && runningMacroId == macro.id
                             UserMacroCard(
                                 modifier  = Modifier.weight(1f),
                                 macro     = macro,
                                 isRunning = isRunning,
-                                onRun     = { runningMacros.value = runningMacros.value + macro.id; onRun(macro.id) },
-                                onEdit    = { editMacro = macro; showDialog = true },
-                                onRunEnd  = { runningMacros.value = runningMacros.value - macro.id }
+                                onRun     = { onRun(macro.id) },
+                                onEdit    = { editMacro = macro; showDialog = true }
                             )
                         }
                         if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
@@ -272,17 +276,10 @@ fun UserMacroCard(
     macro:     UserMacro,
     isRunning: Boolean,
     onRun:     () -> Unit,
-    onEdit:    () -> Unit,
-    onRunEnd:  () -> Unit
+    onEdit:    () -> Unit
 ) {
     val color = MaterialTheme.colorScheme.primary
-
-    LaunchedEffect(isRunning) {
-        if (isRunning) {
-            kotlinx.coroutines.delay((macro.keys.size * 250L) + 500L)
-            onRunEnd()
-        }
-    }
+    // No local LaunchedEffect timer — isRunning is driven by real VM StateFlow.
 
     Box(
         modifier = modifier

@@ -2,6 +2,9 @@
     <string name="app_name">UniRemote</string>
     <string name="main_remote_title">DIGITAL PILOT</string>
 
+    <!-- Common -->
+    <string name="cancel">Hủy</string>
+
     <!-- Remote screen -->
     <string name="connecting_overlay_message">Đang kết nối thiết bị…</string>
 
@@ -10,6 +13,11 @@
     <string name="ok">OK</string>
     <string name="send">Gửi</string>
     <string name="clear_text_content_description">Xóa nội dung</string>
+    <string name="keyboard_active_hint">TV đang hiển thị ô nhập</string>
+    <string name="keyboard_inactive_hint">Nhấn nếu TV không nhận chữ</string>
+    <string name="keyboard_placeholder_disconnected">Chưa kết nối TV</string>
+    <string name="keyboard_placeholder_waiting">Chờ TV mở ô nhập…</string>
+    <string name="keyboard_placeholder_ready">Nhập văn bản…</string>
 
     <!-- Settings screen -->
     <string name="settings_connected_device">THIẾT BỊ ĐÃ KẾT NỐI</string>
@@ -34,6 +42,7 @@
     <string name="settings_no_recent">Chưa có thiết bị nào được kết nối</string>
 
     <!-- Apps screen -->
+    <string name="apps_screen_title">ỨNG DỤNG</string>
     <string name="apps_quick_launch_label">KHỞI CHẠY NHANH</string>
     <string name="apps_installed_title">Ứng dụng đã cài</string>
     <string name="apps_syncing">ĐỒNG BỘ</string>
@@ -43,17 +52,32 @@
     <string name="apps_not_connected">Chưa kết nối TV. Vào Cài đặt để kết nối.</string>
 
     <!-- Cast screen -->
+    <string name="cast_screen_title">CHIẾU MÀN HÌNH</string>
+    <string name="cast_media_title">Truyền Media</string>
+    <string name="cast_gallery_stream">PHÁT TỪ THƯ VIỆN</string>
+    <string name="cast_now_casting">ĐANG CHIẾU</string>
+    <string name="cast_casting_to">Đang chiếu \"%1$s\" lên TV</string>
+    <string name="cast_browse_all">Tất cả</string>
+    <string name="cast_mirroring_title">Phản chiếu màn hình</string>
     <string name="cast_start_mirroring">BẮT ĐẦU PHẢN CHIẾU</string>
     <string name="cast_stop_mirroring">DỪNG PHẢN CHIẾU</string>
     <string name="cast_streaming">ĐANG PHÁT</string>
     <string name="cast_ready">SẴN SÀNG KẾT NỐI</string>
     <string name="cast_wifi_hint">Đảm bảo cả hai thiết bị dùng cùng mạng Wi-Fi</string>
+    <string name="cast_default_device">TV</string>
+    <string name="cast_low_latency_title">Chế độ độ trễ thấp</string>
+    <string name="cast_low_latency_desc">Giảm độ trễ, tiêu thụ nhiều pin hơn</string>
+    <string name="cast_low_latency_mode">Độ trễ thấp</string>
+    <string name="cast_standard_mode">Tiêu chuẩn</string>
+    <!-- %1$s = device name, %2$s = quality mode label -->
+    <string name="cast_mirroring_status">Đang phản chiếu lên %1$s • %2$s</string>
 
     <!-- Macro Manager (Settings) -->
     <string name="macro_section_label">MACRO TÙY CHỈNH</string>
     <string name="macro_section_title">Quản lý Macro</string>
     <string name="macro_add_button">+ Tạo Macro mới</string>
     <string name="macro_empty">Chưa có macro nào. Nhấn nút trên để tạo.</string>
+    <string name="macro_add_hint">Vào Cài đặt → Quản lý Macro để tạo</string>
     <string name="macro_dialog_title_new">Tạo Macro mới</string>
     <string name="macro_dialog_title_edit">Chỉnh sửa Macro</string>
     <string name="macro_name_hint">Tên macro (ví dụ: Movie Night)</string>
@@ -67,4 +91,5 @@
     <string name="macro_run">Chạy</string>
     <string name="macro_name_required">Vui lòng nhập tên macro</string>
     <string name="macro_keys_required">Vui lòng thêm ít nhất một phím bấm</string>
+
 </resources>

@@ -42,13 +42,13 @@ private val inputSources = listOf(
 )
 
 @Composable
-fun InputSourceLayout(vm: RemoteViewModel? = null) {
+fun InputSourceLayout(vm: RemoteViewModel) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(vertical = 8.dp)
     ) {
         items(inputSources) { source ->
-            InputSourceRow(source, onTap = { vm?.sendKey(source.key) })
+            InputSourceRow(source, onTap = { vm.sendKey(source.key) })
             HorizontalDivider(color = Color.White.copy(alpha = 0.07f), thickness = 1.dp)
         }
     }

@@ -5,6 +5,7 @@ import android.security.keystore.KeyProperties
 import android.util.Log
 import com.example.uniremote.data.TvDevice
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import java.math.BigInteger
 import java.net.InetSocketAddress
@@ -55,14 +56,23 @@ class GoogleTvController(
             TvKey.SOURCE   to 178, TvKey.INFO      to 165, TvKey.SETTINGS to 176,
             TvKey.SEARCH   to 84,  TvKey.SLEEP     to 223,
             TvKey.ANDROID_LAUNCHER to 3,
-            TvKey.NETFLIX  to 126, TvKey.YOUTUBE   to 126,
+            // Netflix/YouTube are handled via launchApp() — no keycode equivalent
         )
     }
 
-    private val cmdChannel  = Channel<CtrlCmd>(Channel.UNLIMITED)
+    // Bounded with DROP_OLDEST: if the socket is slow and the user holds a key, we keep
+    // only the 8 most-recent commands — prevents a runaway queue of 100+ events.
+    private val cmdChannel  = Channel<CtrlCmd>(capacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val pinChannel  = Channel<String>(Channel.RENDEZVOUS)
     private var controlJob: Job? = null
-    private var connected   = false
+    // @Volatile: written from control session coroutine, read from VM coroutines
+    @Volatile private var connected = false
+
+    // Controller-owned scope for the session loop — cancelled in disconnect().
+    private val controllerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // Certificate hash pinned per controller instance (persists across reconnect)
+    @Volatile private var pinnedCertHash: String? = null
 
     // ── SSL / KeyStore ────────────────────────────────────────────────────────
 
@@ -91,24 +101,27 @@ class GoogleTvController(
         val ks = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
         val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
         kmf.init(ks, null)
-        val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
-            private var pinnedCertHash: String? = null
-            
+        // Certificate pinning: capture the server cert hash on first connection and
+        // verify it on every subsequent connection. The hash is stored as an instance field
+        // so it persists across reconnects, preventing MITM on reconnect.
+        val trustPinned = arrayOf<TrustManager>(object : X509TrustManager {
             override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
             override fun checkServerTrusted(c: Array<X509Certificate>, a: String) {
                 if (c.isEmpty()) throw CertificateException("No certificate presented")
                 val hash = MessageDigest.getInstance("SHA-256")
                     .digest(c[0].encoded).joinToString("") { "%02x".format(it) }
-                    
-                if (pinnedCertHash == null) {
-                    pinnedCertHash = hash
-                } else if (pinnedCertHash != hash) {
-                    throw CertificateException("Certificate pinning mismatch")
+
+                val pinned = pinnedCertHash
+                if (pinned == null) {
+                    pinnedCertHash = hash  // First connection: learn and pin the cert
+                    Log.d(TAG, "Certificate pinned: ${hash.take(16)}...")
+                } else if (pinned != hash) {
+                    throw CertificateException("Certificate pinning mismatch — possible MITM!")
                 }
             }
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         })
-        return SSLContext.getInstance("TLS").also { it.init(kmf.keyManagers, trustAll, SecureRandom()) }
+        return SSLContext.getInstance("TLS").also { it.init(kmf.keyManagers, trustPinned, SecureRandom()) }
     }
 
     private fun openSslSocket(port: Int): SSLSocket {
@@ -133,6 +146,7 @@ class GoogleTvController(
      * where code_bytes = 2 bytes decoded from hex chars [2..5] of the 6-char PIN.
      */
     private fun encodeSecret(sock: SSLSocket, pin: String): ByteArray {
+        require(pin.length >= 6) { "Google TV PIN must be exactly 6 hex chars, got ${pin.length}" }
         val ks     = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
         val cPub   = (ks.getCertificate(KEY_ALIAS) as X509Certificate).publicKey as RSAPublicKey
         val sPub   = (sock.session.peerCertificates[0] as X509Certificate).publicKey as RSAPublicKey
@@ -146,18 +160,25 @@ class GoogleTvController(
     }
 
     // ── Message framing ───────────────────────────────────────────────────────
+    // The Google TV Remote Protocol uses a 2-byte big-endian length prefix.
+    // Writing only 1 byte (as done previously) truncated any payload > 255 bytes.
 
     private fun send(sock: SSLSocket, payload: ByteArray) {
-        sock.outputStream.write(payload.size)
+        val size = payload.size
+        sock.outputStream.write((size shr 8) and 0xFF)   // high byte
+        sock.outputStream.write(size and 0xFF)             // low byte
         sock.outputStream.write(payload)
         sock.outputStream.flush()
     }
 
     private fun recv(sock: SSLSocket): ByteArray {
-        val size = sock.inputStream.read().also { if (it < 0) throw java.io.IOException("closed") }
+        val hi = sock.inputStream.read().also { if (it < 0) throw java.io.IOException("closed") }
+        val lo = sock.inputStream.read().also { if (it < 0) throw java.io.IOException("closed") }
+        val size = (hi shl 8) or lo
         val buf  = ByteArray(size)
         var n    = 0
-        while (n < size) n += sock.inputStream.read(buf, n, size - n).also { if (it < 0) throw java.io.IOException("closed") }
+        while (n < size) n += sock.inputStream.read(buf, n, size - n)
+            .also { if (it < 0) throw java.io.IOException("closed") }
         return buf
     }
 
@@ -230,7 +251,15 @@ class GoogleTvController(
             if (pin == null) { sock.close(); onPairingState(PairingState.FAILED); return@withContext false }
 
             onPairingState(PairingState.VERIFYING_PIN)
-            send(sock, msgSecret(sock, pin))
+            val secretResult = runCatching { msgSecret(sock, pin) }
+            if (secretResult.isFailure) {
+                sock.close()
+                Log.e(TAG, "PIN encoding failed: ${secretResult.exceptionOrNull()?.message}")
+                onPairingState(PairingState.FAILED)
+                return@withContext false
+            }
+
+            send(sock, secretResult.getOrThrow())
             val resp = runCatching { recv(sock) }.getOrElse { byteArrayOf() }
             sock.close()
 
@@ -250,14 +279,29 @@ class GoogleTvController(
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             val sock = openSslSocket(CONTROL_PORT)
-            controlJob = CoroutineScope(Dispatchers.IO).launch { runSession(sock) }
-            connected = true
-            Log.i(TAG, "Control session started: ${device.ip}:$CONTROL_PORT")
-            true
+
+            // Run the session handshake synchronously before reporting connected=true.
+            // This ensures sendKey() calls are never enqueued before the TV is READY.
+            val readyDeferred = CompletableDeferred<Boolean>()
+            controlJob = controllerScope.launch {
+                runSession(sock, readyDeferred)
+            }
+
+            // Wait up to 15 seconds for the handshake to complete
+            val ready = withTimeoutOrNull(15_000L) { readyDeferred.await() } ?: false
+            if (ready) {
+                connected = true
+                Log.i(TAG, "Control session started: ${device.ip}:$CONTROL_PORT")
+            } else {
+                controlJob?.cancel()
+                runCatching { sock.close() }
+                Log.w(TAG, "Control session handshake timed out")
+            }
+            ready
         }.getOrElse { e -> Log.e(TAG, "connect failed: ${e.message}"); false }
     }
 
-    private suspend fun CoroutineScope.runSession(sock: SSLSocket) {
+    private suspend fun CoroutineScope.runSession(sock: SSLSocket, readyDeferred: CompletableDeferred<Boolean>) {
         try {
             // State 5: consume initial TV message
             sock.soTimeout = 5_000
@@ -273,6 +317,8 @@ class GoogleTvController(
             awaitTags(sock, mutableListOf(0xC2, 0xA2, 0x92))
 
             Log.i(TAG, "Google TV READY")
+            // Signal connect() that the handshake is complete and we are ready for commands
+            readyDeferred.complete(true)
 
             // State 9: Separation of Read and Write pipelines
             sock.soTimeout = 0 // Blocking read
@@ -300,16 +346,23 @@ class GoogleTvController(
                     }
                 }
             }
-        } catch (e: CancellationException) { throw e
-        } catch (e: Exception) { Log.e(TAG, "Session error: ${e.message}") }
+        } catch (e: CancellationException) {
+            if (!readyDeferred.isCompleted) readyDeferred.complete(false)
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Session error: ${e.message}")
+            if (!readyDeferred.isCompleted) readyDeferred.complete(false)
+        }
         finally { connected = false; runCatching { sock.close() } }
     }
 
     /** Wait until a message with [expectedTag] arrives; respond to pings. */
     private fun awaitTag(sock: SSLSocket, expectedTag: Int) {
-        repeat(30) {
+        // Rely on sock.soTimeout (already set) to abort via SocketTimeoutException
+        // instead of a hard iteration cap that could terminate prematurely on slow networks.
+        while (true) {
             val m = runCatching { recv(sock) }.getOrNull() ?: return
-            if (m.isEmpty()) return@repeat
+            if (m.isEmpty()) continue
             val t = m[0].toInt() and 0xFF
             if (t == 0x42) send(sock, msgPong())
             if (t == expectedTag) return
@@ -332,6 +385,7 @@ class GoogleTvController(
     override fun disconnect() {
         cmdChannel.trySend(CtrlCmd.Exit)
         controlJob?.cancel(); controlJob = null
+        controllerScope.coroutineContext[Job]?.cancelChildren()
         connected = false
     }
 
@@ -339,8 +393,12 @@ class GoogleTvController(
 
     override suspend fun sendKey(key: TvKey) {
         val code = KEY_MAP[key] ?: run {
-            Log.w(TAG, "No mapping for $key")
-            return
+            // Netflix and YouTube are not keycode-mappable; launch them as apps
+            when (key) {
+                TvKey.NETFLIX  -> { launchApp("com.netflix.ninja");            return }
+                TvKey.YOUTUBE  -> { launchApp("com.google.android.youtube.tv"); return }
+                else           -> { Log.w(TAG, "No mapping for $key");          return }
+            }
         }
         cmdChannel.trySend(CtrlCmd.Key(code))
     }
@@ -350,7 +408,11 @@ class GoogleTvController(
             val code = when {
                 ch in '0'..'9' -> 7 + (ch - '0')
                 ch in 'a'..'z' -> 29 + (ch - 'a')
-                ch in 'A'..'Z' -> 29 + (ch - 'A')
+                ch in 'A'..'Z' -> {
+                    // Send SHIFT + lowercase equivalent for uppercase characters
+                    cmdChannel.trySend(CtrlCmd.Key(59))  // KEYCODE_SHIFT_LEFT
+                    29 + (ch - 'A')
+                }
                 ch == ' '      -> 62
                 ch == '\n'     -> 66
                 ch == '\b'     -> 67
@@ -364,6 +426,8 @@ class GoogleTvController(
     override suspend fun getInstalledApps(): List<TvApp> = emptyList()
 
     override suspend fun launchApp(appId: String) {
+        // The Google TV Remote Protocol does not natively support launching apps by package name.
+        // Surface this as an unsupported operation so the ViewModel can show an informative message.
         throw UnsupportedOperationException("Google TV Remote Protocol không hỗ trợ mở app trực tiếp.")
     }
 

@@ -86,8 +86,8 @@ class SamsungTvController(
         .build()
 
     private var webSocket: WebSocket? = null
-    private val connectDeferred = CompletableDeferred<Boolean>()
-    private var connected = false
+    // @Volatile: written from OkHttp's websocket thread, read from coroutine threads
+    @Volatile private var connected = false
 
     private val appNameB64: String
         get() = Base64.encodeToString(APP_NAME.toByteArray(), Base64.NO_WRAP)
@@ -103,7 +103,7 @@ class SamsungTvController(
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 connected = true
-                deferred.complete(true)
+                if (!deferred.isCompleted) deferred.complete(true)
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
                 // Handle auth challenge if TV requires pairing
@@ -130,7 +130,7 @@ class SamsungTvController(
             }
         })
 
-        // Add timeout around the deferred to prevent infinite hang if TV ignores prompt
+        // Timeout to prevent infinite hang if TV ignores prompt
         val result = kotlinx.coroutines.withTimeoutOrNull(8000L) {
             deferred.await()
         } ?: false
@@ -165,11 +165,15 @@ class SamsungTvController(
     }
 
     override suspend fun sendText(text: String): Unit = withContext(Dispatchers.IO) {
+        // Samsung Tizen text input protocol:
+        //   Cmd        = "SendInputString"  (the action)
+        //   DataOfCmd  = <text to type>     (the data)
+        // Note: the previous code had Cmd and DataOfCmd swapped — this is the correct order.
         val payload = JSONObject().apply {
             put("method", "ms.remote.control")
             put("params", JSONObject().apply {
-                put("Cmd", text)
-                put("DataOfCmd", "SendInputString")
+                put("Cmd", "SendInputString")
+                put("DataOfCmd", text)
                 put("TypeOfRemote", "SendInputEnd")
             })
         }
@@ -180,17 +184,19 @@ class SamsungTvController(
         runCatching {
             val url = "http://${device.ip}:${device.port}/api/v2/applications"
             val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: return@runCatching emptyList<TvApp>()
-            val json  = JSONObject(body)
-            val data  = json.getJSONArray("data")
-            (0 until data.length()).map { i ->
-                val app = data.getJSONObject(i)
-                TvApp(
-                    id      = app.optString("appId"),
-                    name    = app.optString("name"),
-                    iconUrl = app.optString("iconURI").takeIf { it.isNotEmpty() }
-                )
+            // Use .use{} to guarantee the response body is always closed, preventing connection leaks
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string() ?: return@use emptyList()
+                val json  = JSONObject(body)
+                val data  = json.getJSONArray("data")
+                (0 until data.length()).map { i ->
+                    val app = data.getJSONObject(i)
+                    TvApp(
+                        id      = app.optString("appId"),
+                        name    = app.optString("name"),
+                        iconUrl = app.optString("iconURI").takeIf { it.isNotEmpty() }
+                    )
+                }
             }
         }.getOrElse { emptyList() }
     }

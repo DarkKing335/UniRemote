@@ -16,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.example.uniremote.R
+import com.example.uniremote.network.PairingState
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
@@ -42,6 +43,8 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val currentSsid     by vm.currentSsid.collectAsStateWithLifecycle()
     val userMacros      by vm.userMacros.collectAsStateWithLifecycle()
     val pairingState    by vm.pairingState.collectAsStateWithLifecycle()
+    val isMacroRunning  by vm.isMacroRunning.collectAsStateWithLifecycle()
+    val currentMacroId  by vm.currentMacroId.collectAsStateWithLifecycle()
     var isScanning      by remember { mutableStateOf(false) }
     val context         = LocalContext.current
 
@@ -54,23 +57,44 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
         }
     }
 
-    DisposableEffect(Unit) { onDispose { vm.stopScan() } }
+    // Fix: also reset isScanning so UI is consistent when user navigates away and returns
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.stopScan()
+            isScanning = false
+        }
+    }
 
-    if (pairingState == com.example.uniremote.network.PairingState.WAITING_FOR_PIN || pairingState == com.example.uniremote.network.PairingState.CONNECTING) {
+    // ── Google TV Pairing dialog ───────────────────────────────────────────────
+    if (pairingState == PairingState.WAITING_FOR_PIN || pairingState == PairingState.CONNECTING) {
         var pinCode by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { vm.cancelPairing() },
-            title = { Text(if (pairingState == com.example.uniremote.network.PairingState.CONNECTING) "Đang kết nối..." else "Yêu cầu mã PIN") },
+            title = {
+                Text(
+                    if (pairingState == PairingState.CONNECTING) "Đang kết nối..."
+                    else "Yêu cầu mã PIN"
+                )
+            },
             text = {
-                if (pairingState == com.example.uniremote.network.PairingState.CONNECTING) {
-                    CircularProgressIndicator()
+                if (pairingState == PairingState.CONNECTING) {
+                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
                 } else {
                     Column {
-                        Text("Vui lòng nhập mã 6 chữ số đang hiển thị trên màn hình TV.", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "Vui lòng nhập mã 6 ký tự đang hiển thị trên màn hình TV.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedTextField(
                             value = pinCode,
-                            onValueChange = { if (it.length <= 6) pinCode = it.filter { char -> char.isDigit() || char in 'A'..'Z' || char in 'a'..'z' } },
+                            onValueChange = {
+                                if (it.length <= 6) pinCode = it.filter { char ->
+                                    char.isDigit() || char in 'A'..'Z' || char in 'a'..'z'
+                                }
+                            },
                             label = { Text("Nhập PIN (6 ký tự)") },
                             singleLine = true
                         )
@@ -78,16 +102,17 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 }
             },
             confirmButton = {
-                if (pairingState == com.example.uniremote.network.PairingState.WAITING_FOR_PIN) {
-                    Button(onClick = { vm.submitPairingPin(pinCode) }) {
+                if (pairingState == PairingState.WAITING_FOR_PIN) {
+                    Button(
+                        onClick = { vm.submitPairingPin(pinCode) },
+                        enabled = pinCode.length == 6
+                    ) {
                         Text("Ghép nối")
                     }
                 }
             },
             dismissButton = {
-                TextButton(onClick = { vm.cancelPairing() }) {
-                    Text("Hủy")
-                }
+                TextButton(onClick = { vm.cancelPairing() }) { Text("Hủy") }
             }
         )
     }
@@ -130,22 +155,12 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                         isScanning = !isScanning
                         if (isScanning) vm.scanDevices() else vm.stopScan()
                     },
-                    onConnect    = { device ->
+                    onConnect = { device ->
                         isScanning = false
                         vm.stopScan()
-                        
-                        val isGoogleProtocol = device.brand in listOf(
-                            com.example.uniremote.data.TvBrand.GOOGLE_TV,
-                            com.example.uniremote.data.TvBrand.ANDROID,
-                            com.example.uniremote.data.TvBrand.SONY,
-                            com.example.uniremote.data.TvBrand.XIAOMI
-                        )
-
-                        if (isGoogleProtocol && !knownDevices.any { it.id == device.id }) {
-                            vm.startGoogleTvPairing(device)
-                        } else {
-                            vm.connectTo(device)
-                        }
+                        // Fix: business logic moved to ViewModel.connectOrPair()
+                        // UI no longer needs to know about TvBrand or pairing rules
+                        vm.connectOrPair(device)
                         coroutineScope.launch { scrollState.animateScrollTo(0) }
                     }
                 )
@@ -153,17 +168,19 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     knownDevices    = knownDevices,
                     connectedDevice = connectedDevice,
                     currentSsid     = currentSsid,
-                    onConnect       = { 
+                    onConnect       = {
                         vm.connectTo(it)
                         coroutineScope.launch { scrollState.animateScrollTo(0) }
                     },
-                    onForget        = { vm.forgetDevice(it) }
+                    onForget = { vm.forgetDevice(it) }
                 )
                 MacroManagerCard(
-                    macros   = userMacros,
-                    onSave   = { vm.saveMacro(it) },
-                    onDelete = { vm.deleteMacro(it) },
-                    onRun    = { vm.runUserMacro(it) }
+                    macros          = userMacros,
+                    isMacroRunning  = isMacroRunning,
+                    runningMacroId  = currentMacroId,
+                    onSave          = { vm.saveMacro(it) },
+                    onDelete        = { vm.deleteMacro(it) },
+                    onRun           = { vm.runUserMacro(it) }
                 )
                 Spacer(modifier = Modifier.height(32.dp))
             }

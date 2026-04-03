@@ -40,7 +40,7 @@ import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.TopBar
 import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.*
-import com.example.uniremote.viewmodel.ConnectionStatus
+import com.example.uniremote.domain.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
 import com.example.uniremote.ui.components.NavigationTab
 
@@ -53,6 +53,7 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val isLoading   by vm.isLoadingApps.collectAsStateWithLifecycle()
     val status      by vm.connectionStatus.collectAsStateWithLifecycle()
     val userMacros  by vm.userMacros.collectAsStateWithLifecycle()
+    val isMacroRunning by vm.isMacroRunning.collectAsStateWithLifecycle()
     val isConnected  = status is ConnectionStatus.Connected
     val snackbarHost = remember { SnackbarHostState() }
 
@@ -66,7 +67,7 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     }
 
     Scaffold(
-        topBar    = { TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() }) },
+        topBar    = { TopBar(title = stringResource(R.string.apps_screen_title), onPowerClick = { vm.power() }) },
         bottomBar = { BottomNavBar(currentTab = NavigationTab.APPS, onTabSelected = onNavigate) },
         snackbarHost  = { SnackbarHost(snackbarHost) },
         containerColor = Color.Transparent
@@ -92,8 +93,9 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     onLaunch    = { appId -> vm.launchApp(appId) }
                 )
                 CustomMacrosSection(
-                    macros = userMacros,
-                    onRun  = { vm.runUserMacro(it) }
+                    macros         = userMacros,
+                    isMacroRunning = isMacroRunning,
+                    onRun          = { vm.runUserMacro(it) }
                 )
                 Spacer(modifier = Modifier.height(32.dp))
             }
@@ -224,9 +226,9 @@ fun QuickLaunchSection(
         // Content area
         when {
             !isConnected && apps.isEmpty() -> AppListNotConnected()
-            isLoading                       -> AppGridSkeleton()
-            apps.isEmpty()                  -> AppListEmpty(onSync)
-            else                            -> AppGrid(apps, onLaunch)
+            isLoading                      -> AppGridSkeleton()
+            apps.isEmpty()                 -> AppListEmpty(onSync)
+            else                           -> AppGrid(apps, onLaunch)
         }
     }
 }
@@ -417,15 +419,39 @@ fun AppButton(modifier: Modifier, icon: ImageVector, color: Color, label: String
 // Custom Macros – reads real UserMacro list from DataStore via ViewModel
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Maps the macro's icon field to a Material icon vector. */
+private fun iconForMacro(iconKey: String): ImageVector = when (iconKey) {
+    "nightlight", "bedtime", "sleep" -> Icons.Filled.Nightlight
+    "game", "gaming"                 -> Icons.Filled.VideogameAsset
+    "play"                           -> Icons.Filled.PlayArrow
+    "movie", "film"                  -> Icons.Filled.Movie
+    "music"                          -> Icons.Filled.MusicNote
+    "settings"                       -> Icons.Filled.Settings
+    "home"                           -> Icons.Filled.Home
+    "tv"                             -> Icons.Filled.Tv
+    else                             -> Icons.Filled.Bolt
+}
+
 @Composable
 fun CustomMacrosSection(
     macros: List<UserMacro>,
-    onRun:  (String) -> Unit
+    isMacroRunning: Boolean,   // real execution state from ViewModel
+    onRun: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Column {
-            Text("AUTOMATION", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.5f), letterSpacing = 2.sp, modifier = Modifier.padding(bottom = 4.dp))
-            Text("Custom Macros", style = MaterialTheme.typography.headlineLarge, color = Color.White)
+            Text(
+                stringResource(R.string.macro_section_label),
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.5f),
+                letterSpacing = 2.sp,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            Text(
+                stringResource(R.string.macro_section_title),
+                style = MaterialTheme.typography.headlineLarge,
+                color = Color.White
+            )
         }
 
         if (macros.isEmpty()) {
@@ -437,8 +463,8 @@ fun CustomMacrosSection(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Filled.Bolt, null, tint = Color.White.copy(alpha = 0.25f), modifier = Modifier.size(32.dp))
-                    Text("Chưa có macro nào", style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.4f))
-                    Text("Thêm macro từ mục Cài đặt", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.25f))
+                    Text(stringResource(R.string.macro_empty), style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(alpha = 0.4f))
+                    Text(stringResource(R.string.macro_add_hint), style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.25f))
                 }
             }
         } else {
@@ -447,13 +473,15 @@ fun CustomMacrosSection(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         row.forEach { macro ->
                             MacroCard(
-                                modifier = Modifier.weight(1f),
-                                title    = macro.name,
-                                desc     = macro.description.ifBlank { "${macro.keys.size} phím" },
-                                icon     = Icons.Filled.Bolt,   // resolved at call-site from macro.icon via iconForName
-                                color    = MaterialTheme.colorScheme.primary,
-                                onRun    = { onRun(macro.id) }
-            )}
+                                modifier       = Modifier.weight(1f),
+                                title          = macro.name,
+                                desc           = macro.description.ifBlank { "${macro.keys.size} phím" },
+                                icon           = iconForMacro(macro.icon),   // Fix: use actual macro.icon field
+                                color          = MaterialTheme.colorScheme.primary,
+                                isMacroRunning = isMacroRunning,
+                                onRun          = { onRun(macro.id) }
+                            )
+                        }
                         if (row.size == 1) Spacer(modifier = Modifier.weight(1f))
                     }
                 }
@@ -469,35 +497,24 @@ fun MacroCard(
     desc: String,
     icon: ImageVector,
     color: Color,
+    isMacroRunning: Boolean,   // Fix: driven by ViewModel StateFlow, not local heuristic
     onRun: () -> Unit = {}
 ) {
-    var isRunning by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isRunning) {
-        if (isRunning) {
-            kotlinx.coroutines.delay(2000)
-            isRunning = false
-        }
-    }
-
     Box(
         modifier = modifier
             .height(200.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(if (isRunning) color.copy(alpha = 0.15f) else GlassBtnBg)
+            .background(if (isMacroRunning) color.copy(alpha = 0.15f) else GlassBtnBg)
             .border(
                 1.dp,
-                if (isRunning) color.copy(alpha = 0.4f) else GlassBtnBorder,
+                if (isMacroRunning) color.copy(alpha = 0.4f) else GlassBtnBorder,
                 RoundedCornerShape(24.dp)
             )
             .remotePressable(
-                shape = RoundedCornerShape(24.dp), 
-                raisedElevation = 8.dp, 
+                shape = RoundedCornerShape(24.dp),
+                raisedElevation = 8.dp,
                 pressedElevation = 2.dp,
-                onClick = {
-                    isRunning = !isRunning
-                    if (isRunning) onRun()
-                }
+                onClick = { if (!isMacroRunning) onRun() }   // prevent double-trigger while running
             )
     ) {
         Column(
@@ -527,15 +544,23 @@ fun MacroCard(
                 .padding(24.dp)
                 .size(48.dp)
                 .clip(CircleShape)
-                .border(1.dp, if (isRunning) color.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                .background(if (isRunning) color.copy(alpha = 0.15f) else Color.Transparent),
+                .border(1.dp, if (isMacroRunning) color.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                .background(if (isMacroRunning) color.copy(alpha = 0.15f) else Color.Transparent),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                if (isRunning) Icons.Filled.Check else Icons.Filled.PlayArrow,
-                contentDescription = "Play",
-                tint = if (isRunning) color else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (isMacroRunning) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = color,
+                    strokeWidth = 2.dp
+                )
+            } else {
+                Icon(
+                    Icons.Filled.PlayArrow,
+                    contentDescription = stringResource(R.string.macro_run),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

@@ -4,9 +4,11 @@ import android.util.Log
 import com.example.uniremote.data.TvDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParserFactory
+import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -15,15 +17,23 @@ private const val TAG = "RokuController"
 /**
  * Roku TV controller using the External Control REST API (ECP).
  * API Documentation: https://developer.roku.com/docs/developer-program/debugging/external-control-api.md
- * 
+ *
  * Commands are sent via HTTP POST to: http://<ip>:8060/keypress/<Command>
  */
 class RokuController(override val device: TvDevice) : TvController {
 
-    private val client = NetworkClient.instance
+    // Roku ECP uses fire-and-forget HTTP POSTs — retries on failure would double-press buttons.
+    // Use a dedicated client with retryOnConnectionFailure=false to prevent duplicate key events.
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .writeTimeout(5, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .build()
 
     private val baseUrl = "http://${device.ip}:${device.port}"
-    private var isConnected = false
+    // @Volatile: read/written from IO coroutines and OkHttp callback threads
+    @Volatile private var isConnected = false
 
     companion object {
         private val KEY_MAP = mapOf(
@@ -34,6 +44,7 @@ class RokuController(override val device: TvDevice) : TvController {
             TvKey.OK       to "Select",
             TvKey.BACK     to "Back",
             TvKey.HOME     to "Home",
+            TvKey.MENU     to "Star",     // Roku uses Star (*) for the options/context menu
             TvKey.VOL_UP   to "VolumeUp",
             TvKey.VOL_DOWN to "VolumeDown",
             TvKey.MUTE     to "VolumeMute",
@@ -47,23 +58,20 @@ class RokuController(override val device: TvDevice) : TvController {
             TvKey.RW       to "Rev",
             TvKey.INFO     to "Info",
             TvKey.SEARCH   to "Search",
-            TvKey.BACK     to "Back",
-            TvKey.MENU     to "Info"     // Roku typically uses info or star (*)
         )
     }
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
-        // Roku doesn't maintain a persistent connection, but we can ping the root or query/device-info
-        // to verify it's reachable.
+        // Roku doesn't maintain a persistent connection; ping device-info to verify reachability.
         runCatching {
             val request = Request.Builder().url("$baseUrl/query/device-info").build()
             client.newCall(request).execute().use { response ->
                 isConnected = response.isSuccessful
                 isConnected
             }
-        }.getOrElse { 
+        }.getOrElse {
             isConnected = false
-            false 
+            false
         }
     }
 
@@ -102,15 +110,15 @@ class RokuController(override val device: TvDevice) : TvController {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return@use
                 val xml = response.body?.string() ?: return@use
-                
+
                 val factory = XmlPullParserFactory.newInstance()
                 val parser = factory.newPullParser()
                 parser.setInput(xml.reader())
-                
+
                 var eventType = parser.eventType
                 var appId = ""
                 var appName = ""
-                
+
                 while (eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
                     when (eventType) {
                         org.xmlpull.v1.XmlPullParser.START_TAG -> {
@@ -149,9 +157,9 @@ class RokuController(override val device: TvDevice) : TvController {
                     .post("".toRequestBody())
                     .build()
                 val call = client.newCall(request)
-                
+
                 cont.invokeOnCancellation { call.cancel() }
-                
+
                 call.enqueue(object : okhttp3.Callback {
                     override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
                         if (cont.isActive) cont.resumeWithException(e)

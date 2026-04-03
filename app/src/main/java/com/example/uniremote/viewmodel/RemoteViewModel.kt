@@ -7,15 +7,17 @@ import com.example.uniremote.data.AppPreferences
 import com.example.uniremote.data.DeviceRepository
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.data.UserMacro
+import com.example.uniremote.domain.AutoConnectUseCase
+import com.example.uniremote.domain.ConnectionStatus
 import com.example.uniremote.network.*
-import com.example.uniremote.util.WifiUtil
 import com.example.uniremote.util.WakeOnLanUtil
+import com.example.uniremote.util.WifiUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import com.example.uniremote.domain.AutoConnectUseCase
 
 private const val STARTUP_DELAY_MS = 1_000L
 
@@ -56,6 +58,14 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private val _isTextInputActive = MutableStateFlow(false)
     val isTextInputActive: StateFlow<Boolean> = _isTextInputActive.asStateFlow()
 
+    // Exposed so MacroCard can show real execution state instead of local heuristic timer
+    private val _isMacroRunning = MutableStateFlow(false)
+    val isMacroRunning: StateFlow<Boolean> = _isMacroRunning.asStateFlow()
+
+    // Tracks which specific macro ID is currently executing — used to highlight the correct card
+    private val _currentMacroId = MutableStateFlow<String?>(null)
+    val currentMacroId: StateFlow<String?> = _currentMacroId.asStateFlow()
+
     fun setTextInputActive(active: Boolean) { _isTextInputActive.value = active }
 
     val autoReconnect: Flow<Boolean> = prefs.autoReconnect
@@ -83,7 +93,8 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
-        System.setProperty("user.home", application.filesDir.absolutePath)
+        // NOTE: System.setProperty("user.home") has been moved to MainActivity.onCreate()
+        // to ensure it is set before any controller is instantiated.
 
         connectJob = viewModelScope.launch(Dispatchers.IO) {
             prefs.seedDefaultMacros()
@@ -104,13 +115,35 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    /**
+     * Smart connect: if the device requires Google TV pairing handshake (and is not already
+     * a known/paired device), starts the pairing flow first, then connects.
+     * Otherwise connects directly. Encapsulates brand logic so the UI doesn't need to know it.
+     */
+    fun connectOrPair(device: TvDevice) {
+        val alreadyKnown = knownDevices.value.any { it.id == device.id }
+        if (connectionManager.requiresPairing(device) && !alreadyKnown) {
+            startGoogleTvPairing(device)
+        } else {
+            connectTo(device)
+        }
+    }
+
     fun connectTo(device: TvDevice) {
         connectJob?.cancel()
         connectJob = viewModelScope.launch {
             val success = connectionManager.connectTo(device)
             if (success) {
-                repo.saveDevice(device)
+                // Bug fix: only save the base device info here.
+                // The token will be saved separately by onTokenReceived() once the TV sends it
+                // (which happens asynchronously after connect returns).
+                // Saving 'device' here with token=null would overwrite a previously saved token.
                 repo.markDeviceOnline(device.id)
+                // If device has no saved record yet, save a minimal entry without overwriting token
+                val known = knownDevices.value.firstOrNull { it.id == device.id }
+                if (known == null) {
+                    repo.saveDevice(device)  // First time only — safe because token is null anyway
+                }
                 loadInstalledApps()
             } else {
                 repo.markDeviceOffline(device.id)
@@ -121,10 +154,12 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun startGoogleTvPairing(device: TvDevice) {
         viewModelScope.launch {
-            if (connectionManager.startGoogleTvPairing(device)) {
+            val paired = connectionManager.startGoogleTvPairing(device)
+            if (paired) {
                 connectTo(device)
             } else {
-                _toastMessage.tryEmit("Ghép nối chuẩn thất bại. Đang thử kết nối dự phòng...")
+                // Pairing failed — still try the ADB fallback via connectTo's chain
+                _toastMessage.tryEmit("Đang thử kết nối dự phòng qua ADB...")
                 connectTo(device)
             }
         }
@@ -192,46 +227,80 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     fun loadInstalledApps() {
         viewModelScope.launch {
             _isLoadingApps.value = true
-            _installedApps.value = runCatching { 
-                connectionManager.getInstalledApps().map { it.toUiModel() } 
+            _installedApps.value = runCatching {
+                connectionManager.getInstalledApps().map { it.toUiModel() }
             }.getOrElse { emptyList() }
             _isLoadingApps.value = false
         }
     }
 
-    fun launchApp(appId: String) = viewModelScope.launch { 
-        runCatching { connectionManager.launchApp(appId) } 
+    fun launchApp(appId: String) = viewModelScope.launch {
+        runCatching { connectionManager.launchApp(appId) }
     }
 
     fun scanDevices() {
         discoveryJob?.cancel()
+        // Fix: tie the 10s completion timer INSIDE the same Job as the discovery flow.
+        // Previously, a second call to scanDevices() would cancel only the discovery loop
+        // but leave the old timer running, causing stale updateScanResults after 10s.
         discoveryJob = viewModelScope.launch {
-            discovery.discover().collect { devices ->
-                _discoveredDevices.value = devices
-                repo.updateScanResults(devices.map { it.id }.toSet())
+            launch {
+                discovery.discover().collect { devices ->
+                    _discoveredDevices.value = devices
+                    repo.updateScanResults(devices.map { it.id }.toSet(), scanComplete = false)
+                }
             }
+            // After 10s, this whole Job is the scan scope — timer and discovery cancelled together
+            delay(10_000L)
+            val finalIds = _discoveredDevices.value.map { it.id }.toSet()
+            repo.updateScanResults(finalIds, scanComplete = true)
         }
     }
 
     fun stopScan() { discoveryJob?.cancel(); discoveryJob = null }
-    fun toggleMirroring() { _isMirroring.value = !_isMirroring.value }
+
+    /**
+     * Surfaces at the Cast screen. The actual mirroring implementation
+     * will be added when the Cast API is integrated (tracked separately).
+     * For now this toggles internal state for use when the API is connected.
+     */
+    fun toggleMirroring() {
+        if (_isMirroring.value) {
+            // Stop: clear state, will also cancel any future API session here
+            _isMirroring.value = false
+        } else {
+            // TODO: Start Cast API session here when API is added
+            // For now, show toast that this feature is in progress
+            _toastMessage.tryEmit("Tính năng chiếu màn hình sẽ sớm ra mắt 🚀")
+        }
+    }
+
     fun setAutoReconnect(enabled: Boolean) = viewModelScope.launch { prefs.setAutoReconnect(enabled) }
 
-    fun runMacro(keys: List<TvKey>) {
+    fun runMacro(keys: List<TvKey>, macroId: String? = null) {
         macroJob?.cancel()
         macroJob = viewModelScope.launch(Dispatchers.IO) {
-            for (key in keys) {
-                if (connectionStatus.value !is ConnectionStatus.Connected) break
-                runCatching { connectionManager.sendKey(key) }
-                delay(200)
+            _isMacroRunning.value = true
+            _currentMacroId.value = macroId
+            try {
+                for (key in keys) {
+                    ensureActive()
+                    if (connectionStatus.value !is ConnectionStatus.Connected) break
+                    runCatching { connectionManager.sendKey(key) }
+                    delay(200)
+                }
+            } finally {
+                // Always clear both flags, even on cancellation or error
+                _isMacroRunning.value = false
+                _currentMacroId.value = null
             }
         }
     }
 
     fun saveMacro(macro: UserMacro) = viewModelScope.launch { prefs.saveMacro(macro) }
     fun deleteMacro(macroId: String) = viewModelScope.launch { prefs.deleteMacro(macroId) }
-    fun runUserMacro(macroId: String) { 
-        userMacros.value.firstOrNull { it.id == macroId }?.let { runMacro(it.keys) } 
+    fun runUserMacro(macroId: String) {
+        userMacros.value.firstOrNull { it.id == macroId }?.let { runMacro(it.keys, macroId) }
     }
 
     override fun onCleared() {

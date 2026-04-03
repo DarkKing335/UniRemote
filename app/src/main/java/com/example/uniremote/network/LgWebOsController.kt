@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -72,9 +73,12 @@ class LgWebOsController(
 
     private var webSocket: WebSocket? = null
     private var pointerSocket: WebSocket? = null
-    private var connected = false
+    // @Volatile: written from OkHttp's websocket callback thread, read from coroutine threads
+    @Volatile private var connected = false
     private val msgId = AtomicInteger(0)
     private val pendingRequests = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
+    // Mutex prevents two concurrent moveMouse() calls from opening two pointer sockets at 60fps
+    private val pointerMutex = kotlinx.coroutines.sync.Mutex()
 
     // ── Registration payload ──────────────────────────────────────────────────
     private fun buildRegistration() = JSONObject().apply {
@@ -128,7 +132,7 @@ class LgWebOsController(
                         if (id == "register_0" && !deferred.isCompleted) {
                             deferred.complete(false)
                         }
-                        pendingRequests[id]?.complete(json)
+                        pendingRequests[id]?.completeExceptionally(IOException("SSAP error: ${json.optString("error")}"))
                     }
                     "response" -> {
                         pendingRequests[id]?.complete(json)
@@ -147,7 +151,7 @@ class LgWebOsController(
             }
         })
         try {
-            kotlinx.coroutines.withTimeout(15_000) {
+            kotlinx.coroutines.withTimeout(8_000) {
                 deferred.await()
             }
         } catch (e: Exception) {
@@ -168,7 +172,11 @@ class LgWebOsController(
     override fun isConnected() = connected
 
     private fun clearPendingRequests() {
-        pendingRequests.values.forEach { it.cancel() }
+        // Complete with an exception rather than cancelling — callers wrapped in runCatching
+        // will get a tidy IOException rather than a CancellationException that could propagate.
+        pendingRequests.values.forEach {
+            it.completeExceptionally(IOException("WebSocket disconnected"))
+        }
         pendingRequests.clear()
     }
 
@@ -185,8 +193,8 @@ class LgWebOsController(
             val deferred = CompletableDeferred<JSONObject>()
             pendingRequests[id] = deferred
             webSocket?.send(message.toString())
-            runCatching { 
-                kotlinx.coroutines.withTimeout(5_000L) { deferred.await() } 
+            runCatching {
+                kotlinx.coroutines.withTimeout(5_000L) { deferred.await() }
             }.getOrNull().also { pendingRequests.remove(id) }
         }
 
@@ -233,11 +241,11 @@ class LgWebOsController(
 
     // ── Mouse pointer via separate WebSocket ──────────────────────────────────
     private var pointerSocketDeferred: CompletableDeferred<Boolean>? = null
-    private suspend fun ensurePointerSocket() {
-        if (pointerSocket != null) return
+    private suspend fun ensurePointerSocket() = pointerMutex.withLock {
+        if (pointerSocket != null) return@withLock
         val resp = request("ssap://com.webos.service.networkinput/getPointerInputSocket")
-        val socketPath = resp?.optJSONObject("payload")?.optString("socketPath") ?: return
-        
+        val socketPath = resp?.optJSONObject("payload")?.optString("socketPath") ?: return@withLock
+
         pointerSocketDeferred = CompletableDeferred()
         val req = Request.Builder().url(socketPath).build()
         pointerSocket = client.newWebSocket(req, object : WebSocketListener() {

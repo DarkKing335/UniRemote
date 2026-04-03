@@ -41,11 +41,12 @@ import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
 fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
-    val isMirroring by vm.isMirroring.collectAsStateWithLifecycle()
+    val isMirroring    by vm.isMirroring.collectAsStateWithLifecycle()
+    val connectedDevice by vm.connectedDevice.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
-            TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() })
+            TopBar(title = stringResource(R.string.cast_screen_title), onPowerClick = { vm.power() })
         },
         bottomBar = {
             BottomNavBar(currentTab = NavigationTab.CAST, onTabSelected = onNavigate)
@@ -66,7 +67,11 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(32.dp)
             ) {
                 CastingSection()
-                MirroringSection(isMirroring = isMirroring, onToggle = { vm.toggleMirroring() })
+                MirroringSection(
+                    isMirroring  = isMirroring,
+                    deviceName   = connectedDevice?.name ?: stringResource(R.string.cast_default_device),
+                    onToggle     = { vm.toggleMirroring() }
+                )
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -103,6 +108,7 @@ fun CastingSection() {
     var castingItem by remember { mutableStateOf<String?>(null) }
 
     // Auto-clear casting feedback after 3s
+    // NOTE: When Cast API is integrated, replace this with actual cast session state
     LaunchedEffect(castingItem) {
         if (castingItem != null) {
             kotlinx.coroutines.delay(3000)
@@ -117,7 +123,7 @@ fun CastingSection() {
             verticalAlignment = Alignment.Bottom
         ) {
             Text(
-                text = "Casting",
+                text = stringResource(R.string.cast_media_title),
                 style = MaterialTheme.typography.headlineLarge,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -132,7 +138,7 @@ fun CastingSection() {
                     Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "NOW CASTING",
+                        text = stringResource(R.string.cast_now_casting),
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = MaterialTheme.colorScheme.primary,
                         letterSpacing = 1.sp
@@ -140,7 +146,7 @@ fun CastingSection() {
                 }
             } else {
                 Text(
-                    text = "GALLERY STREAM",
+                    text = stringResource(R.string.cast_gallery_stream),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     letterSpacing = 1.5.sp
@@ -161,7 +167,8 @@ fun CastingSection() {
                 Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = "Casting \"$castingItem\" to Living Room TV",
+                    // TODO: replace "TV" with actual connected device name when Cast API is integrated
+                    text = stringResource(R.string.cast_casting_to, castingItem ?: ""),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -185,9 +192,9 @@ fun CastingSection() {
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isSelected) surface_bright else Color.Transparent)
-                        .clickable { 
+                        .clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            selectedTabIndex = index 
+                            selectedTabIndex = index
                         }
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center
@@ -221,9 +228,9 @@ fun CastingSection() {
                             else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
                             RoundedCornerShape(16.dp)
                         )
-                        .clickable { 
+                        .clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            castingItem = item.label 
+                            castingItem = item.label
                         }
                 ) {
                     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)))
@@ -259,9 +266,9 @@ fun CastingSection() {
                                 else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.1f),
                                 RoundedCornerShape(16.dp)
                             )
-                            .clickable { 
+                            .clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                castingItem = item.label 
+                                castingItem = item.label
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -281,7 +288,7 @@ fun CastingSection() {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         Icon(Icons.Filled.AddToPhotos, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("BROWSE ALL", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.cast_browse_all), style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -294,21 +301,36 @@ fun CastingSection() {
 // Screen Mirroring section – wired to ViewModel
 // ─────────────────────────────────────────────────────────────────────────────
 @Composable
-fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
+fun MirroringSection(
+    isMirroring: Boolean,
+    deviceName: String,          // Fix: use actual connected device name, not hardcoded string
+    onToggle: () -> Unit
+) {
     val haptic = LocalHapticFeedback.current
     var isLowLatency by remember { mutableStateOf(false) }
 
-    val infiniteTransition = rememberInfiniteTransition(label = "mirror_pulse")
-    val mirrorScale by infiniteTransition.animateFloat(
-        initialValue = 0.98f, targetValue = 1.02f,
-        animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
-        label = "mirror_scale"
-    )
-    val signalAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "signal_alpha"
-    )
+    // Fix: Run mirror-pulse animation ONLY when mirroring is active — saves CPU/battery when idle
+    val mirrorScale   by if (isMirroring) {
+        rememberInfiniteTransition(label = "mirror_pulse")
+            .animateFloat(
+                initialValue  = 0.98f, targetValue = 1.02f,
+                animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
+                label = "mirror_scale"
+            )
+    } else {
+        remember { mutableFloatStateOf(1f) }
+    }
+
+    val signalAlpha   by if (isMirroring) {
+        rememberInfiniteTransition(label = "signal_alpha")
+            .animateFloat(
+                initialValue  = 0.4f, targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Reverse),
+                label = "signal_alpha"
+            )
+    } else {
+        remember { mutableFloatStateOf(0.5f) }
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
         Row(
@@ -316,7 +338,7 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.Bottom
         ) {
-            Text(text = "Screen Mirroring", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+            Text(text = stringResource(R.string.cast_mirroring_title), style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
             Row(
                 modifier = Modifier
                     .clip(CircleShape)
@@ -341,7 +363,7 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .scale(if (isMirroring) mirrorScale else 1f)
+                .scale(mirrorScale)
                 .clip(RoundedCornerShape(32.dp))
                 .background(if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else surface_container_low)
                 .border(1.dp, if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent, RoundedCornerShape(32.dp))
@@ -388,7 +410,8 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
                     }
                 }
 
-                // Start / Stop button – calls vm.toggleMirroring() via onToggle
+                // Start / Stop button — calls vm.toggleMirroring() via onToggle
+                // toggleMirroring() shows a "Coming Soon" toast until Cast API is connected
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -399,9 +422,9 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
                             else
                                 Brush.linearGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.primaryContainer))
                         )
-                        .clickable { 
+                        .clickable {
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            onToggle() 
+                            onToggle()
                         }
                         .padding(vertical = 20.dp),
                     contentAlignment = Alignment.Center
@@ -436,16 +459,16 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
-                            Text("Low Latency Mode", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(bottom = 2.dp))
-                            Text("OPTIMIZE FOR GAMING", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.cast_low_latency_title), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(bottom = 2.dp))
+                            Text(stringResource(R.string.cast_low_latency_desc), style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                     Box(
                         modifier = Modifier.width(48.dp).height(24.dp).clip(CircleShape)
                             .background(if (isLowLatency) MaterialTheme.colorScheme.primaryContainer else surface_bright)
-                            .clickable { 
+                            .clickable {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                isLowLatency = !isLowLatency 
+                                isLowLatency = !isLowLatency
                             }.padding(4.dp),
                         contentAlignment = if (isLowLatency) Alignment.CenterEnd else Alignment.CenterStart
                     ) {
@@ -463,7 +486,12 @@ fun MirroringSection(isMirroring: Boolean, onToggle: () -> Unit) {
                         Icon(Icons.Filled.CheckCircle, null, tint = primary_fixed_dim, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            "Mirroring to Living Room TV • ${if (isLowLatency) "Low-latency" else "Standard"} mode",
+                            // Fix: use real connected device name instead of hardcoded "Living Room TV"
+                            stringResource(
+                                R.string.cast_mirroring_status,
+                                deviceName,
+                                if (isLowLatency) stringResource(R.string.cast_low_latency_mode) else stringResource(R.string.cast_standard_mode)
+                            ),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
                             color = primary_fixed_dim
                         )

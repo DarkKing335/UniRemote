@@ -38,7 +38,7 @@ import com.example.uniremote.ui.theme.*
 import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
+fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel) {
     val actionStripState = rememberLazyListState()
     Box(
         modifier = Modifier
@@ -115,7 +115,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     icon = Icons.AutoMirrored.Filled.Input,
                     shape = CircleShape,
                     bg = DeepBtnBg,
-                    onClick = { vm?.sendKey(TvKey.SOURCE) }
+                    onClick = { vm.sendKey(TvKey.SOURCE) }
                 )
                 PremiumBtn(
                     modifier = Modifier.size(88.dp),
@@ -123,9 +123,9 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     shape = CircleShape,
                     bg = GlassBtnBg,
                     glow = CyanText.copy(alpha = 0.25f),
-                    onClick = { vm?.sendKey(TvKey.SEARCH) }
+                    onClick = { vm.sendKey(TvKey.SEARCH) }
                 )
-                PowerCircleButton(modifier = Modifier.size(66.dp), onClick = { vm?.power() })
+                PowerCircleButton(modifier = Modifier.size(66.dp), onClick = { vm.power() })
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -144,7 +144,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     icon = Icons.Filled.Explore,
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
-                    onClick = { vm?.sendKey(TvKey.MENU) }
+                    onClick = { vm.sendKey(TvKey.MENU) }
                 )
                 PremiumBtn(
                     modifier = Modifier
@@ -154,7 +154,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     icon = Icons.Filled.Tv,
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
-                    onClick = { vm?.sendKey(TvKey.INFO) }
+                    onClick = { vm.sendKey(TvKey.INFO) }
                 )
                 PremiumBtn(
                     modifier = Modifier
@@ -165,7 +165,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
                     tint = CyanText,
-                    onClick = { vm?.sendKey(TvKey.BACK) }
+                    onClick = { vm.sendKey(TvKey.BACK) }
                 )
                 PremiumBtn(
                     modifier = Modifier
@@ -176,7 +176,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
                     tint = CyanText,
-                    onClick = { vm?.sendKey(TvKey.HOME) }
+                    onClick = { vm.sendKey(TvKey.HOME) }
                 )
 
                 PremiumDPad(
@@ -184,11 +184,11 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                         .align(Alignment.Center)
                         .fillMaxHeight(0.83f)
                         .aspectRatio(1f),
-                    onUp    = { vm?.sendKey(TvKey.UP)    },
-                    onDown  = { vm?.sendKey(TvKey.DOWN)  },
-                    onLeft  = { vm?.sendKey(TvKey.LEFT)  },
-                    onRight = { vm?.sendKey(TvKey.RIGHT) },
-                    onOk    = { vm?.sendKey(TvKey.OK)    }
+                    onUp    = { vm.sendKey(TvKey.UP)    },
+                    onDown  = { vm.sendKey(TvKey.DOWN)  },
+                    onLeft  = { vm.sendKey(TvKey.LEFT)  },
+                    onRight = { vm.sendKey(TvKey.RIGHT) },
+                    onOk    = { vm.sendKey(TvKey.OK)    }
                 )
             }
 
@@ -208,20 +208,20 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
                     icon = Icons.AutoMirrored.Filled.VolumeOff,
                     bg = Color(0xFF1E2631),
                     shape = RoundedCornerShape(12.dp),
-                    onClick = { vm?.mute() }
+                    onClick = { vm.mute() }
                 )
 
                 ControlPair(
                     modifier = Modifier.weight(1f),
                     title = "VOL",
-                    onMinus = { vm?.volumeDown() },
-                    onPlus  = { vm?.volumeUp() }
+                    onMinus = { vm.volumeDown() },
+                    onPlus  = { vm.volumeUp() }
                 )
                 ControlPair(
                     modifier = Modifier.weight(1f),
                     title = "PROG",
-                    onMinus = { vm?.channelDown() },
-                    onPlus  = { vm?.channelUp() }
+                    onMinus = { vm.channelDown() },
+                    onPlus  = { vm.channelUp() }
                 )
             }
 

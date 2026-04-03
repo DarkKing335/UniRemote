@@ -1,6 +1,7 @@
 package com.example.uniremote.network
 
 import com.example.uniremote.data.TvDevice
+import kotlin.math.abs
 
 /**
  * Protocol-agnostic TV controller interface.
@@ -33,13 +34,19 @@ interface TvController {
     /** Adjusts volume by [delta] steps (+1 = up, -1 = down). */
     suspend fun setVolume(delta: Int) {
         val key = if (delta > 0) TvKey.VOL_UP else TvKey.VOL_DOWN
-        repeat(Math.abs(delta)) { sendKey(key) }
+        repeat(abs(delta)) {
+            sendKey(key)
+            kotlinx.coroutines.delay(150)
+        }
     }
 
     /** Changes channel by [delta] steps. */
     suspend fun setChannel(delta: Int) {
         val key = if (delta > 0) TvKey.CH_UP else TvKey.CH_DOWN
-        repeat(Math.abs(delta)) { sendKey(key) }
+        repeat(abs(delta)) {
+            sendKey(key)
+            kotlinx.coroutines.delay(150)
+        }
     }
 
     /**

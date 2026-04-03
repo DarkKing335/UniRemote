@@ -3,7 +3,7 @@ package com.example.uniremote.network
 import android.util.Log
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
-import com.example.uniremote.viewmodel.ConnectionStatus
+import com.example.uniremote.domain.ConnectionStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,7 +20,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class DeviceConnectionManager {
     var onTokenReceived: ((String) -> Unit)? = null
     private val TAG = "DeviceConnManager"
-    private val CONNECT_TIMEOUT_MS = 4_000L
+    private val CONNECT_TIMEOUT_MS = 10_000L   // raised from 4s — some TVs are slow to respond
 
     private val _connectionStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -35,16 +35,36 @@ class DeviceConnectionManager {
     private var googleTvPairingCtrl: GoogleTvController? = null
     private val connectMutex = Mutex()
 
+    // ── Public helpers ─────────────────────────────────────────────────────────
+
+    /**
+     * Returns true if [device] requires going through the GoogleTV pairing handshake
+     * before a normal control connection can be established.
+     * Encapsulates this business rule so the UI layer doesn't need to know brand logic.
+     */
+    fun requiresPairing(device: TvDevice): Boolean = device.brand in setOf(
+        TvBrand.GOOGLE_TV, TvBrand.ANDROID, TvBrand.SONY, TvBrand.XIAOMI
+    )
+
+    /**
+     * Tries to connect to [device] silently (no status/UI update on failure).
+     * On success, updates [_connectionStatus] and [_connectedDevice] so the UI
+     * reflects the connected state immediately after auto-connect.
+     */
     suspend fun tryConnectSilently(device: TvDevice): Boolean {
         return runCatching {
             controller?.disconnect()
-            val controllers = buildControllerChain(device)
-            for (ctrl in controllers) {
+            // Lazy: create and try each controller one at a time.
+            // Unused controllers are never instantiated, so their SSL sockets/scopes are never opened.
+            for (factory in controllerFactories(device)) {
+                val ctrl = factory()
                 val success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
                     runCatching { ctrl.connect() }.getOrElse { false }
                 } ?: false
                 if (success) {
                     controller = ctrl
+                    _connectedDevice.value = device
+                    _connectionStatus.value = ConnectionStatus.Connected
                     return@runCatching true
                 }
                 ctrl.disconnect()
@@ -62,25 +82,27 @@ class DeviceConnectionManager {
             _connectedDevice.value = device
 
             controller?.disconnect()
-            
-            val controllers = buildControllerChain(device)
+
             var success = false
-            for (ctrl in controllers) {
+            for (factory in controllerFactories(device)) {
+                val ctrl = factory()
                 success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
                     runCatching { ctrl.connect() }.getOrElse { false }
                 } ?: false
-                
+
                 if (success) {
                     controller = ctrl
                     break
                 }
-                ctrl.disconnect()
+                ctrl.disconnect()  // dispose the failed controller immediately
             }
 
             if (success) {
                 _connectionStatus.value = ConnectionStatus.Connected
             } else {
-                _connectionStatus.value = ConnectionStatus.Error("Cannot reach ${device.name}. Check that the TV is on and reachable.")
+                _connectionStatus.value = ConnectionStatus.Error(
+                    "Không thể kết nối với ${device.name}. Kiểm tra TV đang bật và cùng mạng Wi-Fi."
+                )
                 controller = null
                 _connectedDevice.value = null
             }
@@ -145,20 +167,40 @@ class DeviceConnectionManager {
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
-    private fun buildControllerChain(device: TvDevice): List<TvController> = when (device.brand) {
-        TvBrand.SAMSUNG   -> listOf(SamsungTvController(device) { token -> onTokenReceived?.invoke(token) })
-        TvBrand.LG        -> listOf(LgWebOsController(device) { token -> onTokenReceived?.invoke(token) })
-        TvBrand.FIRE_TV   -> listOf(AndroidTvController(device))
-        TvBrand.ROKU      -> listOf(RokuController(device))
-        
-        TvBrand.GOOGLE_TV, 
-        TvBrand.ANDROID, 
-        TvBrand.SONY, 
-        TvBrand.XIAOMI    -> listOf(
-            GoogleTvController(device) { state -> _pairingState.value = state },
-            AndroidTvController(device)
+
+    /**
+     * Returns a list of *factory lambdas* — one per protocol to try, in priority order.
+     * Using lambdas (lazy evaluation) prevents eagerly creating all controllers upfront.
+     * Non-selected controllers are never instantiated, so their SSL sockets / coroutine
+     * scopes are never opened (fixing the scope-leak in GOOGLE_TV / UNKNOWN chains).
+     */
+    private fun controllerFactories(device: TvDevice): List<() -> TvController> = when (device.brand) {
+        TvBrand.SAMSUNG -> listOf(
+            { SamsungTvController(device) { token -> onTokenReceived?.invoke(token) } }
         )
-        TvBrand.UNKNOWN   -> listOf(SamsungTvController(device))
+        TvBrand.LG -> listOf(
+            { LgWebOsController(device) { token -> onTokenReceived?.invoke(token) } }
+        )
+        TvBrand.FIRE_TV -> listOf(
+            { AndroidTvController(device) }
+        )
+        TvBrand.ROKU -> listOf(
+            { RokuController(device) }
+        )
+
+        TvBrand.GOOGLE_TV,
+        TvBrand.ANDROID,
+        TvBrand.SONY,
+        TvBrand.XIAOMI -> listOf(
+            { GoogleTvController(device) { state -> _pairingState.value = state } },
+            { AndroidTvController(device) }
+        )
+
+        TvBrand.UNKNOWN -> listOf(
+            { SamsungTvController(device) { token -> onTokenReceived?.invoke(token) } },
+            { LgWebOsController(device) { token -> onTokenReceived?.invoke(token) } },
+            { GoogleTvController(device) { state -> _pairingState.value = state } }
+        )
     }
 
     fun onCleared() {

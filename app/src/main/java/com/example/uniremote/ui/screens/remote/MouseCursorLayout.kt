@@ -37,7 +37,7 @@ import com.example.uniremote.ui.theme.GlassBtnBorder
 import com.example.uniremote.viewmodel.RemoteViewModel
 
 @Composable
-fun MouseCursorLayout(vm: RemoteViewModel? = null) {
+fun MouseCursorLayout(vm: RemoteViewModel) {
     val haptic = LocalHapticFeedback.current
 
     Column(
@@ -56,9 +56,9 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                 .border(1.dp, GlassBtnBorder, RoundedCornerShape(6.dp))
         ) {
             // Refresh → sends OK (acts as confirm/refresh in browser)
-            NavIconBtn(icon = Icons.Filled.Refresh,                   modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.OK) })
-            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack,    modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.BACK) })
-            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowForward, modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm?.sendKey(TvKey.MENU) })
+            NavIconBtn(icon = Icons.Filled.Refresh,                   modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm.sendKey(TvKey.OK) })
+            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowBack,    modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm.sendKey(TvKey.BACK) })
+            NavIconBtn(icon = Icons.AutoMirrored.Filled.ArrowForward, modifier = Modifier.weight(1f).fillMaxHeight(), onClick = { vm.sendKey(TvKey.MENU) })
 
             // Vertical divider
             Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(GlassBtnBorder))
@@ -68,7 +68,7 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                 modifier = Modifier
                     .weight(1.2f)
                     .fillMaxHeight()
-                    .remotePressable(shape = RoundedCornerShape(4.dp), onClick = { vm?.sendKey(TvKey.MENU) }),
+                    .remotePressable(shape = RoundedCornerShape(4.dp), onClick = { vm.sendKey(TvKey.MENU) }),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -98,13 +98,13 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                     .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(4.dp))
                     .pointerInput(Unit) {
                         detectDragGestures(onDrag = { _, dragAmount ->
-                            vm?.moveMouse(dragAmount.x, dragAmount.y)
+                            vm.moveMouse(dragAmount.x, dragAmount.y)
                         })
                     }
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = { 
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            vm?.tapMouse() 
+                            vm.tapMouse()
                         })
                     }
             )
@@ -126,7 +126,7 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                         .fillMaxWidth()
                         .weight(1f)
                         .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp,
-                            onClick = { vm?.sendKey(TvKey.UP) }),
+                            onClick = { vm.sendKey(TvKey.UP) }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Scroll Up", tint = Color.White.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
@@ -147,7 +147,7 @@ fun MouseCursorLayout(vm: RemoteViewModel? = null) {
                         .fillMaxWidth()
                         .weight(1f)
                         .remotePressable(shape = RoundedCornerShape(4.dp), raisedElevation = 6.dp, pressedElevation = 1.dp,
-                            onClick = { vm?.sendKey(TvKey.DOWN) }),
+                            onClick = { vm.sendKey(TvKey.DOWN) }),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(

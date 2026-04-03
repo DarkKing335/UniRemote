@@ -31,7 +31,7 @@ private data class ActionStripItem(
 @Composable
 fun SlidingActionButtonStrip(
     listState: LazyListState,
-    vm:        RemoteViewModel? = null,
+    vm:        RemoteViewModel,
     modifier:  Modifier = Modifier
 ) {
     val stripShape = RoundedCornerShape(8.dp)
@@ -62,7 +62,7 @@ fun SlidingActionButtonStrip(
                     icon     = item.icon,
                     fontSize = item.fontSize,
                     shape    = stripShape,
-                    onClick  = { item.key?.let { vm?.sendKey(it) } }
+                    onClick  = { item.key?.let { vm.sendKey(it) } }
                 )
             }
         }

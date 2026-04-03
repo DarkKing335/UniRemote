@@ -40,10 +40,10 @@ class AndroidTvController(
             TvKey.PLAY       to 126,
             TvKey.PAUSE      to 127,
             TvKey.STOP       to 86,
-            TvKey.FF         to 87,
-            TvKey.RW         to 89,
-            TvKey.NEXT       to 87,
-            TvKey.PREV       to 88,
+            TvKey.FF         to 90,   // KEYCODE_MEDIA_FAST_FORWARD (was 87 — wrong!)
+            TvKey.RW         to 89,   // KEYCODE_MEDIA_REWIND
+            TvKey.NEXT       to 87,   // KEYCODE_MEDIA_NEXT
+            TvKey.PREV       to 88,   // KEYCODE_MEDIA_PREVIOUS
             TvKey.NUM_0      to 7,
             TvKey.NUM_1      to 8,
             TvKey.NUM_2      to 9,
@@ -64,11 +64,12 @@ class AndroidTvController(
     }
 
     private var dadb: Dadb? = null
-    private var connected = false
+    // @Volatile ensures writes from the OkHttp/ADB thread are visible on the calling coroutine thread
+    @Volatile private var connected = false
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
-            // Force ADB port to 5555. mDNS often discovers port 6466 (RemoteV1), 8008 (DIAL), 
+            // Force ADB port to 5555. mDNS often discovers port 6466 (RemoteV1), 8008 (DIAL),
             // or 80/20060 (SDCP), but wireless ADB is almost always running on port 5555.
             val adbPort = 5555
 
@@ -116,7 +117,15 @@ class AndroidTvController(
     }
 
     override suspend fun sendText(text: String): Unit = withContext(Dispatchers.IO) {
-        val safeText = text.replace("'", "'\\''").replace(" ", "%s")
+        // Safely escape the text for ADB shell input:
+        // Only allow alphanumerics + underscore as-is; escape everything else.
+        val safeText = text.map { c ->
+            when {
+                c.isLetterOrDigit() || c == '_' -> c.toString()
+                c == ' ' -> "%s"       // ADB 'input text' interprets %s as space
+                else -> "\\$c"         // escape shell metacharacters
+            }
+        }.joinToString("")
         shell("input text '$safeText'")
     }
 
@@ -124,7 +133,7 @@ class AndroidTvController(
         runCatching {
             val output = dadb?.shell("pm list packages -3 -f")?.output ?: ""
             val lines = output.split("\n", "\r")
-            
+
             lines.mapNotNull { l ->
                 val parts = l.trim().removePrefix("package:").split("=")
                 if (parts.size == 2) {
@@ -147,4 +156,3 @@ class AndroidTvController(
         shell("input keyevent 23")
     }
 }
-

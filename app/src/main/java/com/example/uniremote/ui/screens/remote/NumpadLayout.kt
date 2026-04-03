@@ -36,7 +36,7 @@ private data class NumpadEntry(
 )
 
 @Composable
-private fun SegmentedNumpadRow(entries: List<NumpadEntry>, vm: RemoteViewModel?) {
+private fun SegmentedNumpadRow(entries: List<NumpadEntry>, vm: RemoteViewModel) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -52,7 +52,7 @@ private fun SegmentedNumpadRow(entries: List<NumpadEntry>, vm: RemoteViewModel?)
                     .weight(1f)
                     .fillMaxHeight()
                     .remotePressable(shape = RectangleShape, raisedElevation = 5.dp, pressedElevation = 1.dp,
-                        onClick = { entry.key?.let { vm?.sendKey(it) } }),
+                        onClick = { entry.key?.let { vm.sendKey(it) } }),
                 contentAlignment = Alignment.Center
             ) {
                 if (entry.text != null) {
@@ -70,7 +70,7 @@ private fun SegmentedNumpadRow(entries: List<NumpadEntry>, vm: RemoteViewModel?)
 }
 
 @Composable
-fun NumpadLayout(pageAlpha: Float = 1f, vm: RemoteViewModel? = null) {
+fun NumpadLayout(pageAlpha: Float = 1f, vm: RemoteViewModel) {
     val actionStripState = rememberLazyListState()
     val colorStripState = rememberLazyListState()
     Column(

@@ -36,7 +36,7 @@ import com.example.uniremote.ui.screens.remote.MediaPlaybackLayout
 import com.example.uniremote.ui.screens.remote.NumpadLayout
 import com.example.uniremote.ui.theme.PremiumBgEnd
 import com.example.uniremote.ui.theme.PremiumBgStart
-import com.example.uniremote.viewmodel.ConnectionStatus
+import com.example.uniremote.domain.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
 import kotlin.math.abs
 
@@ -123,6 +123,14 @@ fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                                 color = Color.White.copy(alpha = 0.9f),
                                 style = MaterialTheme.typography.bodyMedium
                             )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            TextButton(onClick = { vm.disconnect() }) {
+                                Text(
+                                    text = stringResource(R.string.cancel),
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
                         }
                     }
                 }

@@ -66,14 +66,20 @@ class DeviceRepository(
 
     // ── Update scan visibility ────────────────────────────────────────────────
 
-    /** Mark known devices seen in scan as online; others on same SSID as offline. */
-    suspend fun updateScanResults(scannedIds: Set<String>) {
-        val ssid    = WifiUtil.getCurrentSsid(context) ?: return
-        val onSsid  = prefs.getKnownDevicesOnce().filter { it.ssid == ssid }
+    /**
+     * Mark known devices seen in scan as online.
+     * Only marks unseen devices as offline when [scanComplete] is true —
+     * i.e. after the full scan window has elapsed — to avoid the
+     * offline→online→offline flicker caused by the sequential mDNS resolve queue.
+     */
+    suspend fun updateScanResults(scannedIds: Set<String>, scanComplete: Boolean = false) {
+        val ssid   = WifiUtil.getCurrentSsid(context) ?: return
+        val onSsid = prefs.getKnownDevicesOnce().filter { it.ssid == ssid }
         onSsid.forEach { entity ->
             if (scannedIds.contains(entity.id)) {
                 prefs.markKnownDeviceOnline(entity.id)
-            } else {
+            } else if (scanComplete) {
+                // Only mark offline once the scan is declared complete, not mid-discovery
                 prefs.markKnownDeviceOffline(entity.id)
             }
         }
