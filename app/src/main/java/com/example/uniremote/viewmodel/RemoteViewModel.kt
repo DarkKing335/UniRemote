@@ -55,6 +55,10 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     private val _isMirroring = MutableStateFlow(false)
     val isMirroring: StateFlow<Boolean> = _isMirroring.asStateFlow()
 
+    // Cast integration is not implemented in this build.
+    private val _isCastFeatureAvailable = MutableStateFlow(false)
+    val isCastFeatureAvailable: StateFlow<Boolean> = _isCastFeatureAvailable.asStateFlow()
+
     private val _isTextInputActive = MutableStateFlow(false)
     val isTextInputActive: StateFlow<Boolean> = _isTextInputActive.asStateFlow()
 
@@ -259,19 +263,21 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
 
     fun stopScan() { discoveryJob?.cancel(); discoveryJob = null }
 
-    /**
-     * Surfaces at the Cast screen. The actual mirroring implementation
-     * will be added when the Cast API is integrated (tracked separately).
-     * For now this toggles internal state for use when the API is connected.
-     */
+    fun requestCastFeatureInfo() {
+        _toastMessage.tryEmit("Casting and mirroring are not available in this build yet.")
+    }
+
     fun toggleMirroring() {
+        if (!_isCastFeatureAvailable.value) {
+            _isMirroring.value = false
+            requestCastFeatureInfo()
+            return
+        }
+
         if (_isMirroring.value) {
-            // Stop: clear state, will also cancel any future API session here
             _isMirroring.value = false
         } else {
-            // TODO: Start Cast API session here when API is added
-            // For now, show toast that this feature is in progress
-            _toastMessage.tryEmit("Tính năng chiếu màn hình sẽ sớm ra mắt 🚀")
+            _toastMessage.tryEmit("Mirroring session handling is not wired yet.")
         }
     }
 
