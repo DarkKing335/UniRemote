@@ -16,7 +16,12 @@ data class KnownDevice(
     val lastConnectedMs: Long,           // epoch ms of last successful connection
     val lastSeenMs:      Long = 0L,      // epoch ms of last NSD scan detection
     val isOnline:        Boolean = false,
-    val token:           String? = null  // Auth token / pairing key
+    val token:           String? = null, // Auth token / pairing key
+    /**
+     * Persisted pairing flag for Google TV / Android TV / Sony / Xiaomi.
+     * Once true, connectOrPair() skips the PIN flow and connects directly.
+     */
+    val isPaired:        Boolean = false
 )
 
 // ── Mapping ───────────────────────────────────────────────────────────────────
@@ -30,7 +35,8 @@ fun KnownDevice.toDomain(): TvDevice = TvDevice(
     port            = port,
     ssid            = ssid,
     lastConnectedMs = lastConnectedMs,
-    token           = token
+    token           = token,
+    isPaired        = isPaired
 )
 
 fun TvDevice.toKnownDevice(ssid: String, nowMs: Long, isOnline: Boolean = true) = KnownDevice(
@@ -44,5 +50,6 @@ fun TvDevice.toKnownDevice(ssid: String, nowMs: Long, isOnline: Boolean = true) 
     lastConnectedMs = nowMs,
     lastSeenMs      = nowMs,
     isOnline        = isOnline,
-    token           = token
+    token           = token,
+    isPaired        = isPaired
 )

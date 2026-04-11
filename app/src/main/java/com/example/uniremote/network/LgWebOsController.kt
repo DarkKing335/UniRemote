@@ -4,6 +4,8 @@ import com.example.uniremote.data.TvDevice
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -69,16 +71,19 @@ class LgWebOsController(
     private val client = NetworkClient.instance.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)  // LG WebOS drops idle WS after 60s
         .build()
 
     private var webSocket: WebSocket? = null
     private var pointerSocket: WebSocket? = null
     // @Volatile: written from OkHttp's websocket callback thread, read from coroutine threads
     @Volatile private var connected = false
+    // Live token — may differ from device.token if TV issued a new key this session
+    @Volatile private var liveToken: String? = device.token
     private val msgId = AtomicInteger(0)
     private val pendingRequests = java.util.concurrent.ConcurrentHashMap<String, CompletableDeferred<JSONObject>>()
     // Mutex prevents two concurrent moveMouse() calls from opening two pointer sockets at 60fps
-    private val pointerMutex = kotlinx.coroutines.sync.Mutex()
+    private val pointerMutex = Mutex()
 
     // ── Registration payload ──────────────────────────────────────────────────
     private fun buildRegistration() = JSONObject().apply {
@@ -124,7 +129,10 @@ class LgWebOsController(
                     "registered" -> {
                         // Pairing accepted – extract client key if provided
                         val key = json.optJSONObject("payload")?.optString("client-key")
-                        if (!key.isNullOrEmpty() && key != device.token) onTokenReceived(key)
+                        if (!key.isNullOrEmpty() && key != liveToken) {
+                            liveToken = key
+                            onTokenReceived(key)
+                        }
                         connected = true
                         if (!deferred.isCompleted) deferred.complete(true)
                     }
@@ -171,6 +179,9 @@ class LgWebOsController(
 
     override fun isConnected() = connected
 
+    override fun getToken(): String? = liveToken
+    override fun saveToken(token: String) { liveToken = token }
+
     private fun clearPendingRequests() {
         // Complete with an exception rather than cancelling — callers wrapped in runCatching
         // will get a tidy IOException rather than a CancellationException that could propagate.
@@ -199,14 +210,33 @@ class LgWebOsController(
         }
 
     override suspend fun sendKey(key: TvKey) {
-        val lgKey = KEY_MAP[key] ?: return
-        request(
-            uri = "ssap://com.webos.service.ime/sendKeyEvent",
-            payload = JSONObject().apply {
-                put("keyCode", lgKey)
-                put("type", "Standard")
+        // LG WebOS: most keys use the IME key-event API, but some have dedicated SSAP endpoints
+        // that are more reliable (media controls, power-off).
+        when (key) {
+            // ── Dedicated SSAP endpoints (more reliable than IME) ────────────────
+            TvKey.POWER  -> request("ssap://system/turnOff")
+            TvKey.PLAY   -> request("ssap://media.controls/play")
+            TvKey.PAUSE  -> request("ssap://media.controls/pause")
+            TvKey.STOP   -> request("ssap://media.controls/stop")
+            TvKey.FF     -> request("ssap://media.controls/fastForward")
+            TvKey.RW     -> request("ssap://media.controls/rewind")
+            TvKey.VOL_UP -> request("ssap://audio/volumeUp")
+            TvKey.VOL_DOWN -> request("ssap://audio/volumeDown")
+            TvKey.MUTE   -> request("ssap://audio/setMute", JSONObject().put("mute", true))
+            TvKey.CH_UP  -> request("ssap://tv/channelUp")
+            TvKey.CH_DOWN -> request("ssap://tv/channelDown")
+            // ── All other keys go through IME key-event ──────────────────────────
+            else -> {
+                val lgKey = KEY_MAP[key] ?: return
+                request(
+                    uri = "ssap://com.webos.service.ime/sendKeyEvent",
+                    payload = JSONObject().apply {
+                        put("keyCode", lgKey)
+                        put("type", "Standard")
+                    }
+                )
             }
-        )
+        }
     }
 
     override suspend fun sendText(text: String) {

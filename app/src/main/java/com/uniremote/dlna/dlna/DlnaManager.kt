@@ -2,7 +2,6 @@ package com.uniremote.dlna.dlna
 
 import org.jupnp.android.AndroidUpnpService
 import org.jupnp.model.action.ActionInvocation
-import org.jupnp.model.meta.Device
 import org.jupnp.model.meta.RemoteDevice
 import org.jupnp.model.meta.RemoteService
 import org.jupnp.model.meta.Service
@@ -40,12 +39,6 @@ class DlnaManager(
             }
         }
 
-        override fun localDeviceAdded(registry: Registry, device: Device<*, *, *>) {
-            if (device is RemoteDevice && isRenderer(device)) {
-                renderers[device.identity.udn.identifierString] = device
-                dispatchDevices()
-            }
-        }
     }
 
     fun bind(service: AndroidUpnpService) {

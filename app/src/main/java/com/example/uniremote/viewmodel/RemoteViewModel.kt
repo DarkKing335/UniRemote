@@ -120,13 +120,18 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     /**
-     * Smart connect: if the device requires Google TV pairing handshake (and is not already
-     * a known/paired device), starts the pairing flow first, then connects.
-     * Otherwise connects directly. Encapsulates brand logic so the UI doesn't need to know it.
+     * Smart connect:
+     * - For Google TV family (Sony/Android TV/Google TV/Xiaomi): runs the PIN pairing flow
+     *   only if the device has never been successfully paired (isPaired == false).
+     *   On subsequent launches the stored isPaired flag lets us skip the PIN entirely.
+     * - For all other brands (Samsung/LG/Roku/Fire TV): connects directly.
      */
     fun connectOrPair(device: TvDevice) {
-        val alreadyKnown = knownDevices.value.any { it.id == device.id }
-        if (connectionManager.requiresPairing(device) && !alreadyKnown) {
+        val savedDevice = knownDevices.value.firstOrNull { it.id == device.id }
+        // Use the persisted isPaired flag, not just "is in DB". A device can appear
+        // in knownDevices after a scan without ever having completed pairing.
+        val alreadyPaired = savedDevice?.isPaired == true
+        if (connectionManager.requiresPairing(device) && !alreadyPaired) {
             startGoogleTvPairing(device)
         } else {
             connectTo(device)
@@ -149,9 +154,17 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
                     repo.saveDevice(device)  // First time only — safe because token is null anyway
                 }
                 loadInstalledApps()
+
+                // Warn the user when the connection fell back to ADB, because ADB shell
+                // commands will silently fail unless the TV approved the RSA fingerprint.
+                if (connectionManager.isAdbFallbackMode.value) {
+                    _toastMessage.tryEmit(
+                        "Ket noi qua ADB. Neu remote khong phan hoi, hay vao TV → Developer Options → bat ADB over Network va chap nhan fingerprint."
+                    )
+                }
             } else {
                 repo.markDeviceOffline(device.id)
-                _toastMessage.tryEmit("Không thể kết nối với ${device.name}. Vui lòng kiểm tra lại TV.")
+                _toastMessage.tryEmit("Khong the ket noi voi ${device.name}. Vui long kiem tra lai TV.")
             }
         }
     }
@@ -160,10 +173,19 @@ class RemoteViewModel(application: Application) : AndroidViewModel(application) 
         viewModelScope.launch {
             val paired = connectionManager.startGoogleTvPairing(device)
             if (paired) {
-                connectTo(device)
+                // Persist isPaired = true so future launches skip the PIN entirely.
+                val pairedDevice = device.copy(isPaired = true)
+                repo.saveDevice(pairedDevice)
+                connectTo(pairedDevice)
             } else {
-                // Pairing failed — still try the ADB fallback via connectTo's chain
-                _toastMessage.tryEmit("Đang thử kết nối dự phòng qua ADB...")
+                // Pairing failed (user cancelled, PIN timeout, or network error).
+                // Still attempt a direct control connection — the TV may already trust
+                // our RSA key if it was previously paired at OS/developer level.
+                // Without isPaired=true, ADB will NOT be offered as a fallback,
+                // so if the direct attempt also fails, the user sees a clear error.
+                _toastMessage.tryEmit(
+                    "Ghep doi that bai hoac bi huy. Thu ket noi truc tiep..."
+                )
                 connectTo(device)
             }
         }

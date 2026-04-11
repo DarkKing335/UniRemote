@@ -16,7 +16,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.example.uniremote.R
-import com.example.uniremote.network.PairingState
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
@@ -42,7 +41,6 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val knownDevices    by vm.knownDevices.collectAsStateWithLifecycle()
     val currentSsid     by vm.currentSsid.collectAsStateWithLifecycle()
     val userMacros      by vm.userMacros.collectAsStateWithLifecycle()
-    val pairingState    by vm.pairingState.collectAsStateWithLifecycle()
     val isMacroRunning  by vm.isMacroRunning.collectAsStateWithLifecycle()
     val currentMacroId  by vm.currentMacroId.collectAsStateWithLifecycle()
     var isScanning      by remember { mutableStateOf(false) }
@@ -63,58 +61,6 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
             vm.stopScan()
             isScanning = false
         }
-    }
-
-    // ── Google TV Pairing dialog ───────────────────────────────────────────────
-    if (pairingState == PairingState.WAITING_FOR_PIN || pairingState == PairingState.CONNECTING) {
-        var pinCode by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { vm.cancelPairing() },
-            title = {
-                Text(
-                    if (pairingState == PairingState.CONNECTING) "Đang kết nối..."
-                    else "Yêu cầu mã PIN"
-                )
-            },
-            text = {
-                if (pairingState == PairingState.CONNECTING) {
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                } else {
-                    Column {
-                        Text(
-                            "Vui lòng nhập mã 6 ký tự đang hiển thị trên màn hình TV.",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        OutlinedTextField(
-                            value = pinCode,
-                            onValueChange = {
-                                if (it.length <= 6) pinCode = it.filter { char ->
-                                    char.isDigit() || char in 'A'..'Z' || char in 'a'..'z'
-                                }
-                            },
-                            label = { Text("Nhập PIN (6 ký tự)") },
-                            singleLine = true
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                if (pairingState == PairingState.WAITING_FOR_PIN) {
-                    Button(
-                        onClick = { vm.submitPairingPin(pinCode) },
-                        enabled = pinCode.length == 6
-                    ) {
-                        Text("Ghép nối")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { vm.cancelPairing() }) { Text("Hủy") }
-            }
-        )
     }
 
     Scaffold(
@@ -169,7 +115,9 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     connectedDevice = connectedDevice,
                     currentSsid     = currentSsid,
                     onConnect       = {
-                        vm.connectTo(it)
+                        // Use connectOrPair (not connectTo) so Sony/Android TV devices
+                        // that haven't been paired yet still go through the PIN flow.
+                        vm.connectOrPair(it)
                         coroutineScope.launch { scrollState.animateScrollTo(0) }
                     },
                     onForget = { vm.forgetDevice(it) }

@@ -6,14 +6,29 @@ import kotlin.math.abs
 /**
  * Protocol-agnostic TV controller interface.
  * Each brand provides its own implementation.
+ *
+ * Lifecycle:
+ *   1. [connect]  — opens the transport (WebSocket / TLS / HTTP)
+ *   2. [pair]     — optional; performs pairing handshake if needed (default: no-op → true)
+ *   3. [sendKey]  — sends commands
+ *   4. [getToken] — retrieves auth credential for persistence
+ *   5. [disconnect]
  */
 interface TvController {
     val device: TvDevice
 
-    /** Opens the network connection (WebSocket / TCP). */
+    /** Opens the network connection (WebSocket / TCP / TLS). */
     suspend fun connect(): Boolean
 
+    /**
+     * Performs an explicit pairing handshake (PIN, popup approval, etc.).
+     * Call this BEFORE [connect] for brands that require it.
+     * Default implementation returns true immediately (no pairing needed).
+     */
+    suspend fun pair(): Boolean = true
+
     /** Closes the connection gracefully. */
+
     fun disconnect()
 
     /** Returns true if the current connection is open. */
@@ -30,6 +45,18 @@ interface TvController {
 
     /** Launches the app with the given [appId]. */
     suspend fun launchApp(appId: String)
+
+    /**
+     * Returns the current auth token / client-key / PSK, or null if not yet paired.
+     * [DeviceConnectionManager] calls this after [connect] to persist the credential.
+     */
+    fun getToken(): String? = device.token
+
+    /**
+     * Stores a token into the controller's internal state (no DataStore write).
+     * Controllers that issue tokens should override this.
+     */
+    fun saveToken(token: String) {}
 
     /** Adjusts volume by [delta] steps (+1 = up, -1 = down). */
     suspend fun setVolume(delta: Int) {

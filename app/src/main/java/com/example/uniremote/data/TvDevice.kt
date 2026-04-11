@@ -12,7 +12,13 @@ data class TvDevice(
     val port: Int = brand.defaultPort,
     val ssid: String = "",     // WiFi SSID at time of last connection
     val lastConnectedMs: Long = 0L,
-    val token: String? = null  // Auth token / pairing key (e.g. Samsung/LG WebOS)
+    val token: String? = null, // Auth token / pairing key (e.g. Samsung/LG WebOS)
+    /**
+     * True once the full pairing handshake has been completed successfully for
+     * Google TV / Android TV / Sony / Xiaomi devices. Used by connectOrPair()
+     * to skip the PIN flow on subsequent connections (pair once, use forever).
+     */
+    val isPaired: Boolean = false
 )
 
 enum class TvBrand(val displayName: String, val defaultPort: Int) {

@@ -18,8 +18,9 @@ import com.uniremote.dlna.dlna.DlnaManager
 import com.uniremote.dlna.dlna.DlnaRenderer
 import com.uniremote.dlna.dlna.DlnaUpnpService
 import com.uniremote.dlna.dlna.NanoHttpMediaServer
+import com.example.uniremote.R
 import org.jupnp.android.AndroidUpnpService
-import org.fourthline.cling.support.model.PositionInfo
+import org.jupnp.support.model.PositionInfo
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.Locale
@@ -86,8 +87,14 @@ class MainActivity : AppCompatActivity() {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            upnpService = (service as DlnaUpnpService.LocalBinder).service
-            dlnaManager.bind(upnpService!!)
+            val androidService = service as? AndroidUpnpService
+            if (androidService == null) {
+                statusText.text = "DLNA service bind failed"
+                return
+            }
+
+            upnpService = androidService
+            dlnaManager.bind(androidService)
             statusText.text = "DLNA service connected"
         }
 

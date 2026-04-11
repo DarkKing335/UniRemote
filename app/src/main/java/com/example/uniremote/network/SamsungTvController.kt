@@ -83,11 +83,14 @@ class SamsungTvController(
     private val client = NetworkClient.instance.newBuilder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
+        .pingInterval(30, TimeUnit.SECONDS)  // Keep-alive: Samsung drops idle WS connections after ~60s
         .build()
 
     private var webSocket: WebSocket? = null
     // @Volatile: written from OkHttp's websocket thread, read from coroutine threads
     @Volatile private var connected = false
+    // Holds the most recent token (may differ from device.token if TV issued a new one)
+    @Volatile private var liveToken: String? = device.token
 
     private val appNameB64: String
         get() = Base64.encodeToString(APP_NAME.toByteArray(), Base64.NO_WRAP)
@@ -111,8 +114,24 @@ class SamsungTvController(
                 val event = json.optString("event")
                 if (event == "ms.channel.connect") {
                     val data = json.optJSONObject("data")
-                    val token = data?.optString("token")
-                    if (!token.isNullOrEmpty() && token != device.token) {
+                    // Token may be in data.token (newer models) or
+                    // data.clients[].attributes.token (older models — Legaccy SmartTV API)
+                    var token = data?.optString("token").takeIf { !it.isNullOrEmpty() }
+                    if (token == null) {
+                        val clients = data?.optJSONArray("clients")
+                        if (clients != null) {
+                            for (i in 0 until clients.length()) {
+                                val attr = clients.getJSONObject(i).optJSONObject("attributes")
+                                val name = attr?.optString("name")
+                                if (name == appNameB64) {
+                                    token = attr?.optString("token").takeIf { !it.isNullOrEmpty() }
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    if (!token.isNullOrEmpty() && token != liveToken) {
+                        liveToken = token
                         onTokenReceived(token)
                     }
                     connected = true
@@ -149,6 +168,11 @@ class SamsungTvController(
     }
 
     override fun isConnected(): Boolean = connected
+
+    /** Returns the most recent token issued by the TV (may differ from device.token). */
+    override fun getToken(): String? = liveToken
+
+    override fun saveToken(token: String) { liveToken = token }
 
     override suspend fun sendKey(key: TvKey): Unit = withContext(Dispatchers.IO) {
         val samsungKey = KEY_MAP[key] ?: return@withContext

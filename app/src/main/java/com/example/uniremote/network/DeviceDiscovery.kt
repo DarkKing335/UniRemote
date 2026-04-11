@@ -42,11 +42,14 @@ class DeviceDiscovery(private val context: Context) {
         // LG
         "_webostv._tcp"          to TvBrand.LG,
         // Google TV Remote v2 (Standard API on port 6466/6467)
+        // Sony Bravia Android TV, Xiaomi, Nvidia Shield, etc. all advertise this
         "_androidtvremote2._tcp" to TvBrand.GOOGLE_TV,
-        // Sony proprietary or DIAL
+        // Sony proprietary IRCC-IP (pre-Android TV / older Bravia models, port 80)
+        "_sony-ircc._tcp"        to TvBrand.SONY,
+        // Sony SDCP / DIAL discovery (older models)
         "_sony-sdcp._tcp"        to TvBrand.SONY,
         "_dial._tcp"             to TvBrand.SONY,
-        // Generic Android TV
+        // Generic Android TV (ADB fallback)
         "_androidtvremote._tcp"  to TvBrand.ANDROID,
         "_adb-tls-connect._tcp"  to TvBrand.ANDROID,
     )

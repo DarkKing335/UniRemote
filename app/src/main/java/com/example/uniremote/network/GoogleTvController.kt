@@ -10,6 +10,7 @@ import kotlinx.coroutines.channels.Channel
 import java.math.BigInteger
 import java.net.InetSocketAddress
 import java.security.*
+import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.security.interfaces.RSAPublicKey
 import javax.net.ssl.*
@@ -143,18 +144,34 @@ class GoogleTvController(
     /**
      * Encode the pairing secret per the Google TV protocol:
      * SHA-256(client_mod | client_exp | server_mod | server_exp | code_bytes)
-     * where code_bytes = 2 bytes decoded from hex chars [2..5] of the 6-char PIN.
+     *
+     * [pin] is the 6-character alphanumeric code shown on the TV screen.
+     * The protocol uses 2 bytes derived from positions 2–5 of the PIN:
+     *   - If those 4 chars are valid hex (e.g. "A3C8") → parse as two hex bytes.
+     *   - If the TV sends a purely numeric PIN (e.g. "123456") → treat as decimal
+     *     bytes to avoid a NumberFormatException crash (digits 0–9 are valid hex too,
+     *     but we validate explicitly to guard against chars like 'G' or 'Z').
      */
     private fun encodeSecret(sock: SSLSocket, pin: String): ByteArray {
-        require(pin.length >= 6) { "Google TV PIN must be exactly 6 hex chars, got ${pin.length}" }
+        require(pin.length >= 6) { "Google TV PIN must be exactly 6 chars, got ${pin.length}" }
         val ks     = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
         val cPub   = (ks.getCertificate(KEY_ALIAS) as X509Certificate).publicKey as RSAPublicKey
         val sPub   = (sock.session.peerCertificates[0] as X509Certificate).publicKey as RSAPublicKey
+
+        // Extract the 2-byte code from PIN positions 2..5
+        val pinSub  = pin.substring(2, 6)
+        val codeBytes: ByteArray = try {
+            pinSub.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        } catch (e: NumberFormatException) {
+            // Fallback: interpret each pair as a decimal value clamped to 0..255
+            Log.w(TAG, "PIN '$pin' contains non-hex chars; falling back to decimal byte encoding")
+            pinSub.chunked(2).map { it.toIntOrNull()?.toByte() ?: 0 }.toByteArray()
+        }
+
         val digest = MessageDigest.getInstance("SHA-256").apply {
             update(bigBytes(cPub.modulus));         update(bigBytes(cPub.publicExponent))
             update(bigBytes(sPub.modulus));         update(bigBytes(sPub.publicExponent))
-            // PIN is 6 hex chars e.g. "A3F19C" → take chars 2..5 → 2 bytes
-            update(pin.substring(2, 6).chunked(2).map { it.toInt(16).toByte() }.toByteArray())
+            update(codeBytes)
         }
         return digest.digest()
     }
@@ -186,9 +203,18 @@ class GoogleTvController(
 
     private fun msgPairRequest(): ByteArray {
         val svc = SERVICE_NAME.toByteArray(); val dev = DEVICE_NAME.toByteArray()
+        // Inner sub-message structure (protobuf wire format):
+        //   0x0A  field-1 tag  (1 byte)
+        //   len   svc length  (1 byte)
+        //   svc   service name bytes
+        //   0x12  field-2 tag  (1 byte)
+        //   len   dev length  (1 byte)
+        //   dev   device name bytes
+        // Total inner length = 4 (headers) + svc.size + dev.size
+        val innerLen = svc.size + dev.size + 4
         return byteArrayOf(
-            0x08, 0x02, 0x10, (-56).toByte(), 0x01,           // version + status OK
-            0x52, (svc.size + dev.size + 6).toByte(),          // PAIRING_MESSAGE + length
+            0x08, 0x02, 0x10, (-56).toByte(), 0x01,   // version + status OK
+            0x52, innerLen.toByte(),                    // PAIRING_REQUEST field + length
             0x0A, svc.size.toByte(), *svc,
             0x12, dev.size.toByte(), *dev
         )
@@ -237,7 +263,7 @@ class GoogleTvController(
      * Runs the full pairing handshake on port 6467.
      * Suspends at WAITING_FOR_PIN until [submitPin] is called.
      */
-    suspend fun pair(): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun pair(): Boolean = withContext(Dispatchers.IO) {
         runCatching {
             onPairingState(PairingState.CONNECTING)
             val sock = openSslSocket(PAIR_PORT)

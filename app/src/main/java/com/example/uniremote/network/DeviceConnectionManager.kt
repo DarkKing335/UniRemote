@@ -5,6 +5,7 @@ import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.domain.ConnectionStatus
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,6 +32,14 @@ class DeviceConnectionManager {
     private val _pairingState = MutableStateFlow(PairingState.IDLE)
     val pairingState: StateFlow<PairingState> = _pairingState.asStateFlow()
 
+    /**
+     * True when the active controller is [AndroidTvController] (ADB fallback).
+     * The ViewModel observes this to warn users that shell commands may fail
+     * if the TV has not approved the RSA fingerprint via its on-screen dialog.
+     */
+    private val _isAdbFallbackMode = MutableStateFlow(false)
+    val isAdbFallbackMode: StateFlow<Boolean> = _isAdbFallbackMode.asStateFlow()
+
     private var controller: TvController? = null
     private var googleTvPairingCtrl: GoogleTvController? = null
     private val connectMutex = Mutex()
@@ -40,11 +49,12 @@ class DeviceConnectionManager {
     /**
      * Returns true if [device] requires going through the GoogleTV pairing handshake
      * before a normal control connection can be established.
-     * Encapsulates this business rule so the UI layer doesn't need to know brand logic.
+     * Returns false once [device.isPaired] is true — the pairing was already done and
+     * the RSA key stored in Android KeyStore is trusted by the TV.
      */
     fun requiresPairing(device: TvDevice): Boolean = device.brand in setOf(
         TvBrand.GOOGLE_TV, TvBrand.ANDROID, TvBrand.SONY, TvBrand.XIAOMI
-    )
+    ) && !device.isPaired
 
     /**
      * Tries to connect to [device] silently (no status/UI update on failure).
@@ -80,10 +90,12 @@ class DeviceConnectionManager {
         return connectMutex.withLock {
             _connectionStatus.value = ConnectionStatus.Connecting
             _connectedDevice.value = device
+            _isAdbFallbackMode.value = false  // reset before each new connection attempt
 
             controller?.disconnect()
 
             var success = false
+            var chosenCtrl: TvController? = null
             for (factory in controllerFactories(device)) {
                 val ctrl = factory()
                 success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
@@ -91,20 +103,24 @@ class DeviceConnectionManager {
                 } ?: false
 
                 if (success) {
-                    controller = ctrl
+                    chosenCtrl = ctrl
                     break
                 }
                 ctrl.disconnect()  // dispose the failed controller immediately
             }
 
-            if (success) {
+            if (success && chosenCtrl != null) {
+                controller = chosenCtrl
+                // Detect ADB fallback so the ViewModel can warn the user
+                _isAdbFallbackMode.value = chosenCtrl is AndroidTvController
                 _connectionStatus.value = ConnectionStatus.Connected
             } else {
                 _connectionStatus.value = ConnectionStatus.Error(
-                    "Không thể kết nối với ${device.name}. Kiểm tra TV đang bật và cùng mạng Wi-Fi."
+                    "Khong the ket noi voi ${device.name}. Kiem tra TV dang bat va cung mang Wi-Fi."
                 )
                 controller = null
                 _connectedDevice.value = null
+                _isAdbFallbackMode.value = false
             }
             success
         }
@@ -190,16 +206,36 @@ class DeviceConnectionManager {
 
         TvBrand.GOOGLE_TV,
         TvBrand.ANDROID,
-        TvBrand.SONY,
-        TvBrand.XIAOMI -> listOf(
-            { GoogleTvController(device) { state -> _pairingState.value = state } },
-            { AndroidTvController(device) }
-        )
+        TvBrand.XIAOMI -> buildList {
+            // 1st: Google TV Remote Protocol (port 6466) — native pairing/control
+            add { GoogleTvController(device) { state -> _pairingState.value = state } }
+            // Last resort: ADB — connects if TV has Developer Options + ADB over network enabled
+            add { AndroidTvController(device) }
+        }
+
+        TvBrand.SONY -> buildList {
+            // Sony Bravia — two protocol generations, try in order:
+            // 1st: Google TV Remote Protocol — Android TV models (2016+, KDL-43W800F etc.)
+            add { GoogleTvController(device) { state -> _pairingState.value = state } }
+            // 2nd: Sony IRCC-IP — pre-Android TV models (older KDL, EX, HX series 2012–2015)
+            add {
+                SonyBraviaController(
+                    device          = device,
+                    pinChannel      = Channel(Channel.RENDEZVOUS),
+                    onPairingState  = { state -> _pairingState.value = state },
+                    onTokenReceived = { token -> onTokenReceived?.invoke(token) }
+                )
+            }
+            // Last resort: ADB
+            add { AndroidTvController(device) }
+        }
 
         TvBrand.UNKNOWN -> listOf(
             { SamsungTvController(device) { token -> onTokenReceived?.invoke(token) } },
             { LgWebOsController(device) { token -> onTokenReceived?.invoke(token) } },
-            { GoogleTvController(device) { state -> _pairingState.value = state } }
+            { GoogleTvController(device) { state -> _pairingState.value = state } },
+            // Last resort: ADB
+            { AndroidTvController(device) }
         )
     }
 
