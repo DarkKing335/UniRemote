@@ -108,8 +108,9 @@ class SonyBraviaController(
         private val JSON_TYPE = "application/json".toMediaType()
     }
 
-    private val baseUrl     get() = "http://${device.ip}:${device.port}"
-    private val httpsUrl    get() = "https://${device.ip}:${device.port}"
+    private val insecureBaseUrl get() = "http://${device.ip}:${device.port}"
+    private val secureBaseUrl get() = "https://${device.ip}:${device.port}"
+    @Volatile private var activeBaseUrl: String = secureBaseUrl
 
     // The PSK/auth cookie obtained after pairing, stored in-memory during session
     @Volatile private var liveToken: String? = device.token
@@ -136,13 +137,34 @@ class SonyBraviaController(
             Log.w(TAG, "No PSK token stored, cannot connect without pairing")
             return@withContext false
         }
+        val body = """{"method":"getSystemInformation","id":1,"params":[],"version":"1.0"}"""
+
+        // Prefer HTTPS when the TV supports it.
+        val secureConnected = runCatching {
+            val response = postJson(secureBaseUrl, ENDPOINT_SYSTEM, body, psk)
+            response != null && response.contains("\"result\"")
+        }.getOrDefault(false)
+        if (secureConnected) {
+            activeBaseUrl = secureBaseUrl
+            connected = true
+            return@withContext true
+        }
+
+        if (!TransportSecurityPolicy.allowInsecureDeviceProtocol("Sony IRCC-IP over http://")) {
+            connected = false
+            return@withContext false
+        }
+
         runCatching {
-            val body = """{"method":"getSystemInformation","id":1,"params":[],"version":"1.0"}"""
-            val response = post(ENDPOINT_SYSTEM, body, JSON_TYPE, psk)
-            connected = response != null
+            val response = postJson(insecureBaseUrl, ENDPOINT_SYSTEM, body, psk)
+            connected = response != null && response.contains("\"result\"")
+            if (connected) {
+                activeBaseUrl = insecureBaseUrl
+            }
             connected
         }.getOrElse {
             Log.e(TAG, "connect() failed", it)
+            connected = false
             false
         }
     }
@@ -158,10 +180,15 @@ class SonyBraviaController(
     override suspend fun pair(): Boolean = withContext(Dispatchers.IO) {
         onPairingState(PairingState.CONNECTING)
         try {
+            val pairingBaseUrl = resolvePairingBaseUrl() ?: run {
+                onPairingState(PairingState.IDLE)
+                return@withContext false
+            }
+
             // Step 1: Initiate registration
             val initBody = buildAccessRegisterPayload()
             val initRequest = Request.Builder()
-                .url("$baseUrl$ENDPOINT_ACCESS")
+                .url("$pairingBaseUrl$ENDPOINT_ACCESS")
                 .post(initBody.toRequestBody(JSON_TYPE))
                 .addHeader("Content-Type", "application/json")
                 .build()
@@ -188,7 +215,7 @@ class SonyBraviaController(
                 android.util.Base64.NO_WRAP
             )
             val authRequest = Request.Builder()
-                .url("$baseUrl$ENDPOINT_ACCESS")
+                .url("$pairingBaseUrl$ENDPOINT_ACCESS")
                 .post(initBody.toRequestBody(JSON_TYPE))
                 .addHeader("Content-Type", "application/json")
                 .addHeader("Authorization", "Basic $credentials")
@@ -197,16 +224,24 @@ class SonyBraviaController(
             val authResponse = runCatching { httpClient.newCall(authRequest).execute() }
                 .getOrNull()
 
+            if (authResponse == null || !authResponse.isSuccessful) {
+                Log.w(TAG, "Pairing auth step failed: HTTP ${authResponse?.code}")
+                authResponse?.close()
+                onPairingState(PairingState.IDLE)
+                return@withContext false
+            }
+
             // Extract the Set-Cookie auth value
-            val cookie = authResponse?.header("Set-Cookie")
+            val cookie = authResponse.header("Set-Cookie")
             val psk    = cookie?.split(";")
                 ?.firstOrNull { it.trim().startsWith("auth=") }
                 ?.substringAfter("auth=")?.trim()
-            authResponse?.close()
+            authResponse.close()
 
             if (!psk.isNullOrEmpty()) {
                 liveToken = psk
                 onTokenReceived(psk)
+                activeBaseUrl = pairingBaseUrl
                 connected = true
                 onPairingState(PairingState.IDLE)
                 Log.i(TAG, "Sony IRCC-IP pairing successful, PSK obtained")
@@ -240,7 +275,7 @@ class SonyBraviaController(
         val psk = liveToken ?: return@withContext
         val soapBody = buildIrccSoap(ircc)
         runCatching {
-            post(ENDPOINT_IRCC, soapBody, SOAP_TYPE, psk)
+            postSoap(activeBaseUrl, ENDPOINT_IRCC, soapBody, psk)
         }.onFailure {
             Log.e(TAG, "sendKey $key failed", it)
         }
@@ -256,7 +291,7 @@ class SonyBraviaController(
         val psk = liveToken ?: return@withContext emptyList()
         runCatching {
             val body = """{"method":"getApplicationList","id":60,"params":[],"version":"1.0"}"""
-            val resp = post("/sony/appControl", body, JSON_TYPE, psk) ?: return@withContext emptyList()
+            val resp = postJson(activeBaseUrl, "/sony/appControl", body, psk) ?: return@withContext emptyList()
             val result = org.json.JSONObject(resp).optJSONArray("result")
                 ?.optJSONArray(0) ?: return@withContext emptyList()
             (0 until result.length()).map { i ->
@@ -274,7 +309,7 @@ class SonyBraviaController(
         val psk = liveToken ?: return@withContext
         runCatching {
             val body = """{"method":"setActiveApp","id":601,"params":[{"uri":"$appId"}],"version":"1.0"}"""
-            post("/sony/appControl", body, JSON_TYPE, psk)
+            postJson(activeBaseUrl, "/sony/appControl", body, psk)
         }.onFailure { Log.e(TAG, "launchApp $appId failed", it) }
     }
 
@@ -282,19 +317,53 @@ class SonyBraviaController(
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
 
-    private fun post(
+    private fun postJson(
+        baseUrl: String,
         path: String,
         body: String,
-        contentType: okhttp3.MediaType,
         psk: String
     ): String? {
         val request = Request.Builder()
             .url("$baseUrl$path")
-            .post(body.toRequestBody(contentType))
+            .post(body.toRequestBody(JSON_TYPE))
+            .addHeader("X-Auth-PSK", psk)
+            .addHeader("Content-Type", "application/json")
+            .build()
+
+        return httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                Log.w(TAG, "JSON request failed: path=$path code=${response.code}")
+                return@use null
+            }
+            val bodyText = response.body?.string()
+            if (bodyText.isNullOrBlank()) {
+                Log.w(TAG, "JSON request returned empty body: path=$path")
+                return@use null
+            }
+            bodyText
+        }
+    }
+
+    private fun postSoap(
+        baseUrl: String,
+        path: String,
+        body: String,
+        psk: String
+    ): String? {
+        val request = Request.Builder()
+            .url("$baseUrl$path")
+            .post(body.toRequestBody(SOAP_TYPE))
             .addHeader("X-Auth-PSK", psk)
             .addHeader("SOAPACTION", "\"urn:schemas-sony-com:service:IRCC:1#X_SendIRCC\"")
             .build()
-        return httpClient.newCall(request).execute().use { it.body?.string() }
+
+        return httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                Log.w(TAG, "SOAP request failed: path=$path code=${response.code}")
+                return@use null
+            }
+            response.body?.string()
+        }
     }
 
     private fun buildIrccSoap(irccCode: String) = """
@@ -315,4 +384,27 @@ class SonyBraviaController(
             [{"value":"yes","function":"WOL"}]
         ]}
     """.trimIndent()
+
+    private fun resolvePairingBaseUrl(): String? {
+        val secureInitSuccess = runCatching {
+            val probeBody = buildAccessRegisterPayload()
+            val probeRequest = Request.Builder()
+                .url("$secureBaseUrl$ENDPOINT_ACCESS")
+                .post(probeBody.toRequestBody(JSON_TYPE))
+                .addHeader("Content-Type", "application/json")
+                .build()
+            httpClient.newCall(probeRequest).execute().use { response ->
+                response.code in 200..499
+            }
+        }.getOrDefault(false)
+        if (secureInitSuccess) {
+            return secureBaseUrl
+        }
+
+        if (TransportSecurityPolicy.allowInsecureDeviceProtocol("Sony IRCC-IP over http://")) {
+            return insecureBaseUrl
+        }
+        Log.w(TAG, "Sony pairing blocked: insecure fallback disabled and HTTPS unavailable")
+        return null
+    }
 }

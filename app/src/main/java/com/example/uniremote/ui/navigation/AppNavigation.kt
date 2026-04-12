@@ -1,17 +1,38 @@
 package com.example.uniremote.ui.navigation
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.uniremote.R
 import com.example.uniremote.network.PairingState
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.screens.AppsScreen
@@ -23,18 +44,13 @@ import com.example.uniremote.viewmodel.RemoteViewModel
 @Composable
 fun AppNavigation() {
     var currentScreen by rememberSaveable { mutableStateOf(NavigationTab.REMOTE) }
-    // Single ViewModel shared across all screens
     val vm: RemoteViewModel = viewModel()
     val pairingState by vm.pairingState.collectAsStateWithLifecycle()
 
-    // ── Global PIN dialog ──────────────────────────────────────────────────────
-    // Rendered at root level so it appears over ANY tab, not just SettingsScreen.
-    // This was the primary cause of the "connected but can't control" bug:
-    // if the user was on the Remote tab, the dialog never showed, PIN timed out,
-    // the app fell back to ADB, which silently rejected all shell commands.
+    // Global PIN dialog — rendered at root level so it appears over ANY tab
     GlobalPairingDialog(
         pairingState = pairingState,
-        onSubmitPin  = { vm.submitPairingPin(it) },
+        onSubmitPin  = { vm.submitPairingPin(it.uppercase()) },
         onCancel     = { vm.cancelPairing() }
     )
 
@@ -46,75 +62,202 @@ fun AppNavigation() {
     }
 }
 
-// ── Shared pairing dialog — used at global level ───────────────────────────────
-/**
- * Shows a modal dialog when the Google TV pairing handshake requires user input.
- *
- * States handled:
- *  - CONNECTING       → spinner + "Connecting..." message
- *  - WAITING_FOR_PIN  → 6-char PIN input field + Confirm button
- *
- * The dialog is dismissed (and pairing cancelled) on back-press / outside tap.
- */
+// ─────────────────────────────────────────────────────────────────────────────
+// Pairing dialog — styled to match reference remote apps
+// ─────────────────────────────────────────────────────────────────────────────
+
 @Composable
 fun GlobalPairingDialog(
     pairingState: PairingState,
     onSubmitPin: (String) -> Unit,
     onCancel: () -> Unit
 ) {
-    if (pairingState != PairingState.WAITING_FOR_PIN && pairingState != PairingState.CONNECTING) return
+    if (pairingState != PairingState.WAITING_FOR_PIN &&
+        pairingState != PairingState.CONNECTING) return
 
     var pinCode by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
 
-    // Reset PIN field each time the dialog is freshly shown
     LaunchedEffect(pairingState) {
         if (pairingState == PairingState.CONNECTING) pinCode = ""
+        if (pairingState == PairingState.WAITING_FOR_PIN) {
+            runCatching { focusRequester.requestFocus() }
+        }
     }
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onCancel,
-        title = {
-            Text(
-                if (pairingState == PairingState.CONNECTING) "Dang ket noi..."
-                else "Yeu cau ma PIN"
-            )
-        },
-        text = {
-            if (pairingState == PairingState.CONNECTING) {
-                androidx.compose.foundation.layout.Box(
-                    modifier = Modifier.fillMaxWidth(),
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+
+                // ── TV icon ────────────────────────────────────────────────
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
-                ) { CircularProgressIndicator() }
-            } else {
-                Column {
-                    Text(
-                        "Vui long nhap ma 6 ky tu dang hien thi tren man hinh TV.",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = pinCode,
-                        onValueChange = {
-                            if (it.length <= 6) pinCode = it.filter { char ->
-                                char.isDigit() || char in 'A'..'Z' || char in 'a'..'z'
-                            }
-                        },
-                        label = { Text("Nhap PIN (6 ky tu)") },
-                        singleLine = true
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Tv,
+                        contentDescription = null,
+                        modifier = Modifier.size(40.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
+
+                Spacer(Modifier.height(20.dp))
+
+                // ── Title ──────────────────────────────────────────────────
+                Text(
+                    text = stringResource(R.string.pairing_title),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                // ── Subtitle ───────────────────────────────────────────────
+                Text(
+                    text = if (pairingState == PairingState.CONNECTING)
+                        stringResource(R.string.pairing_connecting)
+                    else
+                        stringResource(R.string.pairing_instruction),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
+                )
+
+                Spacer(Modifier.height(28.dp))
+
+                // ── Spinner (CONNECTING) or OTP boxes (WAITING_FOR_PIN) ───
+                if (pairingState == PairingState.CONNECTING) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(48.dp),
+                        strokeWidth = 3.dp
+                    )
+                } else {
+                    // Hidden full-width text field that captures keyboard input
+                    BasicTextField(
+                        value = pinCode,
+                        onValueChange = { raw ->
+                            val filtered = raw
+                                .filter { it.isLetterOrDigit() }
+                                .uppercase()
+                                .take(6)
+                            pinCode = filtered
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Ascii,
+                            capitalization = KeyboardCapitalization.Characters,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { if (pinCode.length == 6) onSubmitPin(pinCode) }
+                        ),
+                        cursorBrush = SolidColor(Color.Transparent),
+                        modifier = Modifier
+                            .focusRequester(focusRequester)
+                            .size(1.dp), // invisible but focusable
+                        decorationBox = { it() }
+                    )
+
+                    // ── 6 OTP boxes ────────────────────────────────────────
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        repeat(6) { index ->
+                            val char = pinCode.getOrNull(index)
+                            val isCurrent = index == pinCode.length && pinCode.length < 6
+
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 44.dp, height = 52.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(
+                                        if (char != null)
+                                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                        else
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    .border(
+                                        width = if (isCurrent) 2.dp else 1.dp,
+                                        color = if (isCurrent)
+                                            MaterialTheme.colorScheme.primary
+                                        else if (char != null)
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                        else
+                                            MaterialTheme.colorScheme.outlineVariant,
+                                        shape = RoundedCornerShape(10.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (char != null) {
+                                    Text(
+                                        text = char.toString(),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        textAlign = TextAlign.Center
+                                    )
+                                } else {
+                                    // Dash placeholder
+                                    Text(
+                                        text = "–",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.outlineVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.pairing_char_hint),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(Modifier.height(28.dp))
+
+                // ── Buttons ────────────────────────────────────────────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onCancel,
+                        modifier = Modifier.weight(1f)
+                    ) { Text(stringResource(R.string.pairing_cancel)) }
+
+                    if (pairingState == PairingState.WAITING_FOR_PIN) {
+                        Button(
+                            onClick = { onSubmitPin(pinCode) },
+                            enabled = pinCode.length == 6,
+                            modifier = Modifier.weight(1f)
+                        ) { Text(stringResource(R.string.pairing_confirm)) }
+                    }
+                }
             }
-        },
-        confirmButton = {
-            if (pairingState == PairingState.WAITING_FOR_PIN) {
-                Button(
-                    onClick = { onSubmitPin(pinCode) },
-                    enabled = pinCode.length == 6
-                ) { Text("Ghep noi") }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onCancel) { Text("Huy") }
         }
-    )
+    }
 }

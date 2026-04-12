@@ -54,8 +54,10 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val status      by vm.connectionStatus.collectAsStateWithLifecycle()
     val userMacros  by vm.userMacros.collectAsStateWithLifecycle()
     val isMacroRunning by vm.isMacroRunning.collectAsStateWithLifecycle()
+    val currentMacroId by vm.currentMacroId.collectAsStateWithLifecycle()
     val isConnected  = status is ConnectionStatus.Connected
     val snackbarHost = remember { SnackbarHostState() }
+    var autoSyncTriggered by remember { mutableStateOf(false) }
 
     LaunchedEffect(status) {
         if (status is ConnectionStatus.Error) {
@@ -63,6 +65,17 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 message  = (status as ConnectionStatus.Error).message,
                 duration = SnackbarDuration.Short
             )
+        }
+    }
+
+    LaunchedEffect(isConnected, apps.size, isLoading) {
+        if (!isConnected) {
+            autoSyncTriggered = false
+            return@LaunchedEffect
+        }
+        if (!isLoading && apps.isEmpty() && !autoSyncTriggered) {
+            autoSyncTriggered = true
+            vm.loadInstalledApps()
         }
     }
 
@@ -95,6 +108,7 @@ fun AppsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 CustomMacrosSection(
                     macros         = userMacros,
                     isMacroRunning = isMacroRunning,
+                    runningMacroId = currentMacroId,
                     onRun          = { vm.runUserMacro(it) }
                 )
                 Spacer(modifier = Modifier.height(32.dp))
@@ -436,6 +450,7 @@ private fun iconForMacro(iconKey: String): ImageVector = when (iconKey) {
 fun CustomMacrosSection(
     macros: List<UserMacro>,
     isMacroRunning: Boolean,   // real execution state from ViewModel
+    runningMacroId: String?,
     onRun: (String) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -472,13 +487,14 @@ fun CustomMacrosSection(
                 macros.chunked(2).forEach { row ->
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         row.forEach { macro ->
+                            val isRunning = isMacroRunning && runningMacroId == macro.id
                             MacroCard(
                                 modifier       = Modifier.weight(1f),
                                 title          = macro.name,
                                 desc           = macro.description.ifBlank { "${macro.keys.size} phím" },
                                 icon           = iconForMacro(macro.icon),   // Fix: use actual macro.icon field
                                 color          = MaterialTheme.colorScheme.primary,
-                                isMacroRunning = isMacroRunning,
+                                isRunning      = isRunning,
                                 onRun          = { onRun(macro.id) }
                             )
                         }
@@ -497,24 +513,24 @@ fun MacroCard(
     desc: String,
     icon: ImageVector,
     color: Color,
-    isMacroRunning: Boolean,   // Fix: driven by ViewModel StateFlow, not local heuristic
+    isRunning: Boolean,
     onRun: () -> Unit = {}
 ) {
     Box(
         modifier = modifier
             .height(200.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(if (isMacroRunning) color.copy(alpha = 0.15f) else GlassBtnBg)
+            .background(if (isRunning) color.copy(alpha = 0.15f) else GlassBtnBg)
             .border(
                 1.dp,
-                if (isMacroRunning) color.copy(alpha = 0.4f) else GlassBtnBorder,
+                if (isRunning) color.copy(alpha = 0.4f) else GlassBtnBorder,
                 RoundedCornerShape(24.dp)
             )
             .remotePressable(
                 shape = RoundedCornerShape(24.dp),
                 raisedElevation = 8.dp,
                 pressedElevation = 2.dp,
-                onClick = { if (!isMacroRunning) onRun() }   // prevent double-trigger while running
+                onClick = { if (!isRunning) onRun() }   // prevent double-trigger while running
             )
     ) {
         Column(
@@ -544,11 +560,11 @@ fun MacroCard(
                 .padding(24.dp)
                 .size(48.dp)
                 .clip(CircleShape)
-                .border(1.dp, if (isMacroRunning) color.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                .background(if (isMacroRunning) color.copy(alpha = 0.15f) else Color.Transparent),
+                .border(1.dp, if (isRunning) color.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                .background(if (isRunning) color.copy(alpha = 0.15f) else Color.Transparent),
             contentAlignment = Alignment.Center
         ) {
-            if (isMacroRunning) {
+            if (isRunning) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(20.dp),
                     color = color,

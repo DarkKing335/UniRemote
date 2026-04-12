@@ -18,6 +18,14 @@ class AutoConnectUseCase(
         if (candidates.isEmpty()) return false
 
         for (device in candidates) {
+            // Skip Google TV / Android TV / Sony / Xiaomi devices that have never been
+            // successfully paired. These require an interactive PIN pairing flow and must
+            // NOT be silently connected via ADB — doing so bypasses the pairing requirement
+            // and causes the PIN to never appear on subsequent manual connect attempts.
+            if (connectionManager.requiresPairing(device) && !device.isPaired) {
+                continue
+            }
+
             if (connectionManager.tryConnectSilently(device)) {
                 return true
             }

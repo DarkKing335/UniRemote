@@ -32,15 +32,32 @@ class DeviceRepository(
      */
     suspend fun getAutoConnectCandidates(): List<TvDevice> {
         val ssid = WifiUtil.getCurrentSsid(context)
-        if (ssid == null) {
-            Log.d(TAG, "No WiFi SSID — skipping auto-connect")
-            return emptyList()
-        }
-        Log.d(TAG, "Auto-connect: looking for devices on SSID \"$ssid\"")
-        return prefs.getKnownDevicesOnce()
-            .filter { it.ssid == ssid }
+        val known = prefs.getKnownDevicesOnce()
             .sortedByDescending { it.lastConnectedMs }
-            .map { it.toDomain() }
+
+        if (known.isEmpty()) return emptyList()
+
+        // Primary strategy: exact SSID match.
+        if (!ssid.isNullOrBlank()) {
+            Log.d(TAG, "Auto-connect: looking for devices on SSID \"$ssid\"")
+            val onCurrentSsid = known.filter { it.ssid == ssid }
+            if (onCurrentSsid.isNotEmpty()) {
+                return onCurrentSsid.map { it.toDomain() }
+            }
+
+            // If none match current SSID, still try devices that have no SSID persisted.
+            val withoutSsid = known.filter { it.ssid.isBlank() }
+            if (withoutSsid.isNotEmpty()) {
+                Log.d(TAG, "Auto-connect: no exact SSID match, trying devices without stored SSID")
+                return withoutSsid.map { it.toDomain() }
+            }
+        } else {
+            Log.d(TAG, "Auto-connect: SSID unavailable, falling back to recent known devices")
+        }
+
+        // Final fallback: try a few most-recent devices to avoid startup misses
+        // when SSID is temporarily unavailable right after app launch.
+        return known.take(3).map { it.toDomain() }
     }
 
     // ── Save / update ─────────────────────────────────────────────────────────

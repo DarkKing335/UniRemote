@@ -1,6 +1,9 @@
 <resources>
     <string name="app_name">UniRemote</string>
     <string name="main_remote_title">DIGITAL PILOT</string>
+    <string name="main_remote_no_tv">NO TV CONNECTED</string>
+    <string name="main_remote_status_on">BẬT</string>
+    <string name="main_remote_status_off">TẮT</string>
 
     <!-- Common -->
     <string name="cancel">Cancel</string>
@@ -49,10 +52,11 @@
     <string name="apps_sync">SYNC</string>
     <string name="apps_no_apps">No apps found</string>
     <string name="apps_sync_from_tv">Sync from TV</string>
-    <string name="apps_not_connected">No TV connected. Go to Settings to connect first.</string>
+    <string name="apps_not_connected">Chưa kết nối thiết bị. Vào Cài đặt để kết nối TV trước.</string>
 
     <!-- Cast screen -->
     <string name="cast_screen_title">CAST</string>
+    <string name="cast_idle">IDLE</string>
     <string name="cast_media_title">Media Casting</string>
     <string name="cast_gallery_stream">Library streaming</string>
     <string name="cast_now_casting">Now casting</string>
@@ -63,6 +67,8 @@
     <string name="cast_stop_mirroring">STOP MIRRORING</string>
     <string name="cast_streaming">STREAMING</string>
     <string name="cast_ready">READY</string>
+    <string name="cast_media_quick_desc">Push video or image files from your phone to TV instantly.</string>
+    <string name="cast_mirroring_realtime_desc">Realtime full-screen mirroring tuned for the lowest possible delay.</string>
     <string name="cast_wifi_hint">Keep both devices on the same Wi-Fi network</string>
     <string name="cast_default_device">TV</string>
     <string name="cast_low_latency_title">Low latency mode</string>
@@ -74,6 +80,46 @@
     <string name="cast_unavailable_description">Casting and mirroring are disabled in this build until native Cast integration is completed.</string>
     <string name="cast_unavailable_cta">Learn why</string>
     <string name="cast_requires_connection">Connect a TV first</string>
+    <!-- New strings for functional cast UI -->
+    <string name="cast_available_tvs">AVAILABLE TVs</string>
+    <string name="cast_scan">SCAN</string>
+    <string name="cast_scanning">SCANNING…</string>
+    <string name="cast_preparing">PREPARING…</string>
+    <string name="cast_starting">STARTING PLAYBACK…</string>
+    <string name="cast_no_renderers">No DLNA TVs found on this network.
+Tap Scan to search again.</string>
+    <string name="cast_searching_renderers">Searching for DLNA TVs on your network…</string>
+    <string name="cast_notification_permission_denied">Notification permission denied. Screen mirroring was not started.</string>
+    <string name="cast_pick_file">Pick a video or image</string>
+    <string name="cast_media_file">MEDIA FILE</string>
+    <string name="cast_cast_to">CAST TO TV</string>
+    <string name="cast_stop">STOP CASTING</string>
+    <string name="cast_error_prefix">Cast error: %1$s</string>
+    <string name="cast_device_not_connected">Chưa kết nối thiết bị</string>
+    <string name="cast_select_tv_before_mirroring">Chọn TV ở phần Media Casting trước khi Start Mirroring</string>
+    <string name="cast_select_tv_hint">Select a TV above</string>
+    <string name="cast_pick_file_hint">Pick a file above</string>
+    <string name="cast_mirror_stream_label">STREAM URL</string>
+    <string name="cast_mirror_url_hint">Open this URL in VLC (H.264 live stream)</string>
+    <string name="cast_copy_url">COPY URL</string>
+    <string name="cast_copy_auth_header">COPY AUTH</string>
+    <string name="cast_auth_token_masked">Auth token: %1$s</string>
+    <string name="cast_tls_fingerprint_label">TLS fingerprint: %1$s</string>
+    <string name="cast_endpoint_copied">Stream endpoint copied</string>
+    <string name="cast_secure_link_unavailable">Authorization header is not ready yet</string>
+    <string name="cast_auth_header_copied_warning">Authorization header copied. Share only with trusted clients.</string>
+    <string name="cast_mirror_open_hint">Use HTTPS endpoint + Authorization: Bearer token in VLC. Verify TLS fingerprint before trusting certificate.</string>
+    <string name="cast_notification_title">Screen Mirroring Active</string>
+    <string name="cast_notification_starting">Stream starting…</string>
+    <string name="cast_notification_stop">Stop</string>
+
+    <!-- Global pairing dialog -->
+    <string name="pairing_title">Ghép nối với TV</string>
+    <string name="pairing_connecting">Đang kết nối tới TV...</string>
+    <string name="pairing_instruction">Kiểm tra mã hiển thị trên màn hình TV\nvà nhập vào đây.</string>
+    <string name="pairing_char_hint">Mỗi ký tự là chữ cái hoặc số (A–F, 0–9)</string>
+    <string name="pairing_cancel">Hủy</string>
+    <string name="pairing_confirm">Ghép nối</string>
 
     <!-- Macro Manager (Settings) -->
     <string name="macro_section_label">CUSTOM MACROS</string>

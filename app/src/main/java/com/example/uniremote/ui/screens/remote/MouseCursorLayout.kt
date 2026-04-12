@@ -1,5 +1,6 @@
 package com.example.uniremote.ui.screens.remote
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,10 +18,14 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -35,10 +40,47 @@ import com.example.uniremote.ui.theme.DeepBtnBg
 import com.example.uniremote.ui.theme.GlassBtnBg
 import com.example.uniremote.ui.theme.GlassBtnBorder
 import com.example.uniremote.viewmodel.RemoteViewModel
+import kotlinx.coroutines.delay
+import kotlin.math.max
+
+private data class MouseSwipeTrailPoint(
+    val position: Offset,
+    val createdAtMs: Long
+)
+
+private const val MOUSE_TRAIL_MAX_POINTS = 20
+private const val MOUSE_TRAIL_LIFETIME_MS = 420L
 
 @Composable
 fun MouseCursorLayout(vm: RemoteViewModel) {
     val haptic = LocalHapticFeedback.current
+    val swipeTrail = remember { mutableStateListOf<MouseSwipeTrailPoint>() }
+    val trailColors = remember {
+        listOf(
+            Color(0xFFFF6F61),
+            Color(0xFFFFC75F),
+            Color(0xFFF9F871),
+            Color(0xFF58D68D),
+            Color(0xFF5DADE2),
+            Color(0xFFAF7AC5)
+        )
+    }
+
+    fun recordTrailPoint(position: Offset) {
+        val now = System.currentTimeMillis()
+        swipeTrail.add(MouseSwipeTrailPoint(position = position, createdAtMs = now))
+        val overflow = swipeTrail.size - MOUSE_TRAIL_MAX_POINTS
+        if (overflow > 0) repeat(overflow) { swipeTrail.removeAt(0) }
+    }
+
+    LaunchedEffect(swipeTrail.size) {
+        if (swipeTrail.isEmpty()) return@LaunchedEffect
+        while (swipeTrail.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            swipeTrail.removeAll { now - it.createdAtMs > MOUSE_TRAIL_LIFETIME_MS }
+            delay(16L)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -97,17 +139,43 @@ fun MouseCursorLayout(vm: RemoteViewModel) {
                     .background(Color.Black.copy(alpha = 0.82f))
                     .border(1.dp, Color.White.copy(alpha = 0.07f), RoundedCornerShape(4.dp))
                     .pointerInput(Unit) {
-                        detectDragGestures(onDrag = { _, dragAmount ->
+                        detectDragGestures(onDrag = { change, dragAmount ->
+                            recordTrailPoint(change.position)
                             vm.moveMouse(dragAmount.x, dragAmount.y)
                         })
                     }
                     .pointerInput(Unit) {
-                        detectTapGestures(onTap = { 
+                        detectTapGestures(onTap = {
+                            recordTrailPoint(it)
                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             vm.tapMouse()
                         })
                     }
-            )
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val now = System.currentTimeMillis()
+                    swipeTrail.forEachIndexed { index, point ->
+                        val age = (now - point.createdAtMs).coerceAtLeast(0L)
+                        val life = 1f - (age.toFloat() / MOUSE_TRAIL_LIFETIME_MS.toFloat())
+                        if (life > 0f) {
+                            val color = trailColors[index % trailColors.size]
+                            val radius = max(18f, 44f * life)
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        color.copy(alpha = 0.32f * life),
+                                        Color.Transparent
+                                    ),
+                                    center = point.position,
+                                    radius = radius
+                                ),
+                                radius = radius,
+                                center = point.position
+                            )
+                        }
+                    }
+                }
+            }
 
             // Scroll bar – thin column with ∧ / ∨
             Column(

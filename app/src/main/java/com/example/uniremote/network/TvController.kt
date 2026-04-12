@@ -80,8 +80,12 @@ interface TvController {
      * Moves the on-screen pointer by ([dx], [dy]) pixels.
      * Only meaningful for LG WebOS (pointer socket) and Android TV (ADB input).
      */
-    suspend fun moveMouse(dx: Float, dy: Float) { /* optional */ }
+    suspend fun moveMouse(dx: Float, dy: Float) {
+        throw UnsupportedOperationException("TV hiện tại không hỗ trợ chuột trực tiếp")
+    }
 
     /** Sends a left-click / tap at the current pointer position. */
-    suspend fun tapMouse() { /* optional */ }
+    suspend fun tapMouse() {
+        throw UnsupportedOperationException("TV hiện tại không hỗ trợ chuột trực tiếp")
+    }
 }

@@ -2,11 +2,16 @@ package com.example.uniremote.util
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 
 private const val TAG = "WifiUtil"
 
@@ -53,6 +58,36 @@ object WifiUtil {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to get SSID: ${e.message}")
             null
+        }
+    }
+
+    fun observeCurrentSsid(context: Context): Flow<String?> = callbackFlow {
+        val appContext = context.applicationContext
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        trySend(getCurrentSsid(appContext))
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                trySend(getCurrentSsid(appContext))
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                trySend(getCurrentSsid(appContext))
+            }
+
+            override fun onLost(network: Network) {
+                trySend(getCurrentSsid(appContext))
+            }
+        }
+
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        cm.registerNetworkCallback(request, callback)
+        awaitClose {
+            runCatching { cm.unregisterNetworkCallback(callback) }
         }
     }
 

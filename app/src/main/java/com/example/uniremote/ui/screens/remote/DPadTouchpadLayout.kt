@@ -17,10 +17,14 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -35,10 +39,47 @@ import com.example.uniremote.ui.components.remotePressable
 import com.example.uniremote.ui.theme.CyanText
 import com.example.uniremote.ui.theme.PowerGlow
 import com.example.uniremote.viewmodel.RemoteViewModel
+import kotlinx.coroutines.delay
+import kotlin.math.max
+
+private data class SwipeTrailPoint(
+    val position: Offset,
+    val createdAtMs: Long
+)
+
+private const val TRAIL_MAX_POINTS = 20
+private const val TRAIL_LIFETIME_MS = 420L
 
 @Composable
 fun DPadTouchpadLayout(vm: RemoteViewModel) {
     val haptic = LocalHapticFeedback.current
+    val swipeTrail = remember { mutableStateListOf<SwipeTrailPoint>() }
+    val trailColors = remember {
+        listOf(
+            Color(0xFFFF5A5F),
+            Color(0xFFFFB347),
+            Color(0xFFFFF176),
+            Color(0xFF66BB6A),
+            Color(0xFF4FC3F7),
+            Color(0xFFAB47BC)
+        )
+    }
+
+    fun recordTrailPoint(position: Offset) {
+        val now = System.currentTimeMillis()
+        swipeTrail.add(SwipeTrailPoint(position = position, createdAtMs = now))
+        val overflow = swipeTrail.size - TRAIL_MAX_POINTS
+        if (overflow > 0) repeat(overflow) { swipeTrail.removeAt(0) }
+    }
+
+    LaunchedEffect(swipeTrail.size) {
+        if (swipeTrail.isEmpty()) return@LaunchedEffect
+        while (swipeTrail.isNotEmpty()) {
+            val now = System.currentTimeMillis()
+            swipeTrail.removeAll { now - it.createdAtMs > TRAIL_LIFETIME_MS }
+            delay(16L)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -100,15 +141,17 @@ fun DPadTouchpadLayout(vm: RemoteViewModel) {
                 .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(8.dp))
                 .pointerInput(Unit) {
                     detectDragGestures(
-                        onDrag = { _, dragAmount ->
+                        onDrag = { change, dragAmount ->
+                            recordTrailPoint(change.position)
                             vm.moveMouse(dragAmount.x, dragAmount.y)
                         }
                     )
                 }
                 .pointerInput(Unit) {
-                    detectTapGestures(onTap = { 
+                    detectTapGestures(onTap = {
+                        recordTrailPoint(it)
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.tapMouse() 
+                        vm.tapMouse()
                     })
                 }
         ) {
@@ -135,6 +178,30 @@ fun DPadTouchpadLayout(vm: RemoteViewModel) {
                     strokeWidth = stroke.width,
                     pathEffect = stroke.pathEffect
                 )
+            }
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val now = System.currentTimeMillis()
+                swipeTrail.forEachIndexed { index, point ->
+                    val age = (now - point.createdAtMs).coerceAtLeast(0L)
+                    val life = 1f - (age.toFloat() / TRAIL_LIFETIME_MS.toFloat())
+                    if (life > 0f) {
+                        val color = trailColors[index % trailColors.size]
+                        val radius = max(20f, 52f * life)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    color.copy(alpha = 0.34f * life),
+                                    Color.Transparent
+                                ),
+                                center = point.position,
+                                radius = radius
+                            ),
+                            radius = radius,
+                            center = point.position
+                        )
+                    }
+                }
             }
         }
 

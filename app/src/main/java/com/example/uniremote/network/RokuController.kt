@@ -32,6 +32,9 @@ class RokuController(override val device: TvDevice) : TvController {
         .build()
 
     private val baseUrl = "http://${device.ip}:${device.port}"
+    private fun isRokuCompatibilityAllowed(): Boolean {
+        return TransportSecurityPolicy.allowInsecureDeviceProtocol("Roku ECP over http://")
+    }
     // @Volatile: read/written from IO coroutines and OkHttp callback threads
     @Volatile private var isConnected = false
 
@@ -62,6 +65,10 @@ class RokuController(override val device: TvDevice) : TvController {
     }
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        if (!isRokuCompatibilityAllowed()) {
+            isConnected = false
+            return@withContext false
+        }
         // Roku doesn't maintain a persistent connection; ping device-info to verify reachability.
         runCatching {
             val request = Request.Builder().url("$baseUrl/query/device-info").build()
@@ -150,6 +157,10 @@ class RokuController(override val device: TvDevice) : TvController {
     }
 
     private suspend fun post(url: String) {
+        if (!isRokuCompatibilityAllowed()) {
+            isConnected = false
+            return
+        }
         kotlin.runCatching {
             kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
                 val request = Request.Builder()

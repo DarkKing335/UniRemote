@@ -18,6 +18,7 @@ import com.uniremote.dlna.dlna.DlnaManager
 import com.uniremote.dlna.dlna.DlnaRenderer
 import com.uniremote.dlna.dlna.DlnaUpnpService
 import com.uniremote.dlna.dlna.NanoHttpMediaServer
+import com.example.uniremote.network.TransportSecurityPolicy
 import com.example.uniremote.R
 import org.jupnp.android.AndroidUpnpService
 import org.jupnp.support.model.PositionInfo
@@ -39,7 +40,6 @@ class MainActivity : AppCompatActivity() {
     private var selectedMedia: Uri? = null
     private var selectedMediaName: String = ""
     private var selectedRenderer: DlnaRenderer? = null
-    private var selectedToken: String? = null
 
     private var upnpService: AndroidUpnpService? = null
     private var mediaServer: NanoHttpMediaServer? = null
@@ -158,6 +158,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (!TransportSecurityPolicy.allowInsecureDlnaCasting()) {
+            statusText.text = "DLNA casting disabled in production mode"
+            return
+        }
         bindService(Intent(this, DlnaUpnpService::class.java), serviceConnection, Context.BIND_AUTO_CREATE)
         if (mediaServer == null) {
             mediaServer = NanoHttpMediaServer(this)
@@ -178,6 +182,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun castSelectedMedia() {
+        if (!TransportSecurityPolicy.allowInsecureDlnaCasting()) {
+            statusText.text = "DLNA casting disabled in production mode"
+            return
+        }
+
         val renderer = selectedRenderer
         if (renderer == null) {
             statusText.text = "Select renderer first"
@@ -203,11 +212,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         val mime = contentResolver.getType(mediaUri) ?: "video/mp4"
-        val token = server.addMedia(mediaUri, mime, selectedMediaName)
-        selectedToken?.let { server.removeRoute(it) }
-        selectedToken = token
+        val mediaPath = server.setActiveMedia(mediaUri, mime, selectedMediaName)
 
-        val mediaUrl = "http://$host:8080/$token"
+        val mediaUrl = "http://$host:8080/$mediaPath"
         dlnaManager.cast(renderer.udn, mediaUrl, selectedMediaName)
         statusText.text = "Casting to ${renderer.name}..."
     }

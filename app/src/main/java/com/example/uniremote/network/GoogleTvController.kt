@@ -1,23 +1,28 @@
 package com.example.uniremote.network
 
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
+import android.content.Context
+import android.content.SharedPreferences
+import android.util.Base64
 import android.util.Log
 import com.example.uniremote.data.TvDevice
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import java.io.ByteArrayInputStream
 import java.math.BigInteger
 import java.net.InetSocketAddress
+import java.net.Socket
 import java.security.*
 import java.security.cert.CertificateException
+import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
 import java.security.interfaces.RSAPublicKey
+import java.security.spec.PKCS8EncodedKeySpec
+import java.util.Date
 import javax.net.ssl.*
 import javax.security.auth.x500.X500Principal
 
 private const val TAG          = "GoogleTvController"
-private const val KEY_ALIAS    = "uniremote_google_tv"
 private const val PAIR_PORT    = 6467
 private const val CONTROL_PORT = 6466
 private const val SERVICE_NAME = "uniremote"
@@ -59,6 +64,9 @@ class GoogleTvController(
             TvKey.ANDROID_LAUNCHER to 3,
             // Netflix/YouTube are handled via launchApp() — no keycode equivalent
         )
+
+        // Pairing success detection has moved to PairingProto.containsStatusOk()
+        // and PairingProto.parseStatus(). See PairingProto.kt.
     }
 
     // Bounded with DROP_OLDEST: if the socket is slow and the user holds a key, we keep
@@ -75,61 +83,79 @@ class GoogleTvController(
     // Certificate hash pinned per controller instance (persists across reconnect)
     @Volatile private var pinnedCertHash: String? = null
 
-    // ── SSL / KeyStore ────────────────────────────────────────────────────────
 
-    private fun ensureKeyPair() {
-        val ks = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
-        if (ks.containsAlias(KEY_ALIAS)) return
-        val spec = KeyGenParameterSpec.Builder(
-            KEY_ALIAS,
-            KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY
-        )
-            .setKeySize(2048)
-            .setSignaturePaddings(KeyProperties.SIGNATURE_PADDING_RSA_PKCS1)
-            .setDigests(KeyProperties.DIGEST_SHA256, KeyProperties.DIGEST_SHA1)
-            .setCertificateSerialNumber(BigInteger.ONE)
-            .setCertificateSubject(X500Principal("CN=atvremote, O=Google Inc., C=US"))
-            .setCertificateNotBefore(java.util.Date())
-            .setCertificateNotAfter(java.util.Date(System.currentTimeMillis() + 10L * 365 * 24 * 3600 * 1000))
-            .build()
-        KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_RSA, "AndroidKeyStore")
-            .apply { initialize(spec) }.generateKeyPair()
-        Log.i(TAG, "RSA key pair generated in Android KeyStore")
-    }
+    // ── SSL / Software KeyStore ───────────────────────────────────────────────
+    //
+    // WHY NOT AndroidKeyStore:
+    //   Conscrypt's TLS client-auth path calls CryptoUpcalls.rsaSignDigestWithPrivateKey()
+    //   which internally uses Cipher.ENCRYPT_MODE with the private key. AndroidKeyStore
+    //   hardware-backed keys are non-extractable and have NO Keymaster mapping for
+    //   "private key in ENCRYPT mode" — it maps to PURPOSE_SIGN/DECRYPT, neither of
+    //   which Conscrypt uses via Cipher. This causes "Incompatible padding mode" on
+    //   every TLS handshake regardless of key spec.
+    //
+    // SOLUTION: Software RSA-2048 key pair (standard JCE, not hardware-backed).
+    //   • Conscrypt uses it natively via the OpenSSL RSA engine — no CryptoUpcalls needed.
+    //   • Key material is persisted in app-private SharedPreferences.
+    //   • Equivalent to what Python (PEM file), Go (key file), and ESP32 (raw bytes) all do.
 
     private fun buildSslContext(): SSLContext {
-        ensureKeyPair()
-        val ks = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
-        val kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm())
-        kmf.init(ks, null)
-        // Certificate pinning: capture the server cert hash on first connection and
-        // verify it on every subsequent connection. The hash is stored as an instance field
-        // so it persists across reconnects, preventing MITM on reconnect.
+        val (privKey, cert) = SoftwareTlsKey.getOrCreate()
+
+        val customKM = object : X509ExtendedKeyManager() {
+            private val ALIAS = "sw_client"
+            override fun chooseClientAlias(
+                keyType: Array<out String>?, issuers: Array<out Principal>?,
+                socket: Socket?
+            ): String = ALIAS
+            override fun getClientAliases(
+                keyType: String?, issuers: Array<out Principal>?
+            ): Array<String> = arrayOf(ALIAS)
+            override fun chooseServerAlias(
+                keyType: String?, issuers: Array<out Principal>?,
+                socket: Socket?
+            ): String? = null
+            override fun getServerAliases(
+                keyType: String?, issuers: Array<out Principal>?
+            ): Array<String>? = null
+            override fun getCertificateChain(alias: String?): Array<X509Certificate> = arrayOf(cert)
+            override fun getPrivateKey(alias: String?): PrivateKey = privKey
+        }
+
+        // Trust-on-first-use cert pinning for the TV server certificate.
         val trustPinned = arrayOf<TrustManager>(object : X509TrustManager {
             override fun checkClientTrusted(c: Array<X509Certificate>, a: String) {}
             override fun checkServerTrusted(c: Array<X509Certificate>, a: String) {
-                if (c.isEmpty()) throw CertificateException("No certificate presented")
+                if (c.isEmpty()) throw CertificateException("TV sent no certificate")
                 val hash = MessageDigest.getInstance("SHA-256")
                     .digest(c[0].encoded).joinToString("") { "%02x".format(it) }
-
                 val pinned = pinnedCertHash
                 if (pinned == null) {
-                    pinnedCertHash = hash  // First connection: learn and pin the cert
-                    Log.d(TAG, "Certificate pinned: ${hash.take(16)}...")
+                    pinnedCertHash = hash
+                    Log.d(TAG, "TV cert pinned: ${hash.take(16)}...")
                 } else if (pinned != hash) {
-                    throw CertificateException("Certificate pinning mismatch — possible MITM!")
+                    throw CertificateException("TV cert mismatch (pinning)")
                 }
             }
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         })
-        return SSLContext.getInstance("TLS").also { it.init(kmf.keyManagers, trustPinned, SecureRandom()) }
+
+        return SSLContext.getInstance("TLSv1.2").also {
+            it.init(arrayOf(customKM), trustPinned, SecureRandom())
+        }
     }
 
     private fun openSslSocket(port: Int): SSLSocket {
         val sock = buildSslContext().socketFactory.createSocket() as SSLSocket
-        sock.connect(InetSocketAddress(device.ip, port), 10_000)
-        sock.soTimeout = 10_000
-        sock.startHandshake()
+        try {
+            sock.connect(InetSocketAddress(device.ip, port), 10_000)
+            sock.soTimeout = 10_000
+            sock.startHandshake()
+            Log.d(TAG, "TLS handshake OK  port=$port  cipher=${sock.session.cipherSuite}")
+        } catch (e: Exception) {
+            runCatching { sock.close() }
+            throw e  // re-throw so pair() / connect() see the real cause
+        }
         return sock
     }
 
@@ -154,8 +180,8 @@ class GoogleTvController(
      */
     private fun encodeSecret(sock: SSLSocket, pin: String): ByteArray {
         require(pin.length >= 6) { "Google TV PIN must be exactly 6 chars, got ${pin.length}" }
-        val ks     = KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
-        val cPub   = (ks.getCertificate(KEY_ALIAS) as X509Certificate).publicKey as RSAPublicKey
+        // Use the SOFTWARE client cert public key (NOT AndroidKeyStore any more)
+        val cPub   = SoftwareTlsKey.getOrCreate().second.publicKey as RSAPublicKey
         val sPub   = (sock.session.peerCertificates[0] as X509Certificate).publicKey as RSAPublicKey
 
         // Extract the 2-byte code from PIN positions 2..5
@@ -176,69 +202,63 @@ class GoogleTvController(
         return digest.digest()
     }
 
+
     // ── Message framing ───────────────────────────────────────────────────────
-    // The Google TV Remote Protocol uses a 2-byte big-endian length prefix.
-    // Writing only 1 byte (as done previously) truncated any payload > 255 bytes.
+    // The Google TV Polo protocol uses a 1-BYTE length prefix.
+    // Verified against all 3 reference implementations:
+    //   Go (atvremote):  p.Connection.Write([]byte{byte(len(raw))})
+    //   ESP32:           buffer[0] = bufferSize; ssl_send(buffer, bufferSize + 1)
+    //   Python:          encode_varint(len) — varint = 1 byte for all msgs < 128 bytes
+    //
+    // PREVIOUS BUG: used 2-byte big-endian [hi, lo] prefix.
+    //   → TV sent [size_byte, proto...]. We computed size = size_byte×256 + proto[0]
+    //     (e.g. 1288 bytes). recv() blocked 10 s → SocketTimeoutException.
+    //   → pair() = false every time. PIN dialog NEVER appeared.
 
     private fun send(sock: SSLSocket, payload: ByteArray) {
-        val size = payload.size
-        sock.outputStream.write((size shr 8) and 0xFF)   // high byte
-        sock.outputStream.write(size and 0xFF)             // low byte
+        sock.outputStream.write(payload.size and 0xFF)  // 1-byte length prefix
         sock.outputStream.write(payload)
         sock.outputStream.flush()
+        Log.v(TAG, "TX ${payload.size} bytes: ${payload.take(6).joinToString { "0x%02X".format(it) }}...")
     }
 
     private fun recv(sock: SSLSocket): ByteArray {
-        val hi = sock.inputStream.read().also { if (it < 0) throw java.io.IOException("closed") }
-        val lo = sock.inputStream.read().also { if (it < 0) throw java.io.IOException("closed") }
-        val size = (hi shl 8) or lo
-        val buf  = ByteArray(size)
-        var n    = 0
+        val size = sock.inputStream.read()  // 1-byte length prefix
+            .also { if (it < 0) throw java.io.IOException("connection closed by TV") }
+        Log.v(TAG, "RX expecting $size bytes")
+        val buf = ByteArray(size)
+        var n   = 0
         while (n < size) n += sock.inputStream.read(buf, n, size - n)
-            .also { if (it < 0) throw java.io.IOException("closed") }
+            .also { if (it < 0) throw java.io.IOException("connection closed mid-message") }
         return buf
     }
 
     // ── Pairing messages (port 6467) ──────────────────────────────────────────
+    // Built by PairingProto using verified field numbers from polo.proto / pairingmessage.proto.
+    // NO hardcoded byte arrays — every field is computed from proto field numbers.
 
-    private fun msgPairRequest(): ByteArray {
-        val svc = SERVICE_NAME.toByteArray(); val dev = DEVICE_NAME.toByteArray()
-        // Inner sub-message structure (protobuf wire format):
-        //   0x0A  field-1 tag  (1 byte)
-        //   len   svc length  (1 byte)
-        //   svc   service name bytes
-        //   0x12  field-2 tag  (1 byte)
-        //   len   dev length  (1 byte)
-        //   dev   device name bytes
-        // Total inner length = 4 (headers) + svc.size + dev.size
-        val innerLen = svc.size + dev.size + 4
-        return byteArrayOf(
-            0x08, 0x02, 0x10, (-56).toByte(), 0x01,   // version + status OK
-            0x52, innerLen.toByte(),                    // PAIRING_REQUEST field + length
-            0x0A, svc.size.toByte(), *svc,
-            0x12, dev.size.toByte(), *dev
-        )
-    }
-
-    private fun msgOption()  = byteArrayOf(
-        0x08, 0x02, 0x10, (-56).toByte(), 0x01,
-        0xA2.toByte(), 0x01, 0x08, 0x0A, 0x04,
-        0x08, 0x03, 0x10, 0x06, 0x18, 0x01         // HEX encoding, ROLE_INPUT
+    private fun msgPairRequest() = PairingProto.buildPairingRequest(
+        serviceName = SERVICE_NAME,
+        clientName  = DEVICE_NAME
     )
 
-    private fun msgConfig()  = byteArrayOf(
-        0x08, 0x02, 0x10, (-56).toByte(), 0x01,
-        0xF2.toByte(), 0x01, 0x08, 0x0A, 0x04,
-        0x08, 0x03, 0x10, 0x06, 0x10, 0x01
-    )
+    private fun msgOption()  = PairingProto.buildOptions()
+    private fun msgConfig()  = PairingProto.buildConfiguration()
 
     private fun msgSecret(sock: SSLSocket, pin: String): ByteArray {
         val sec = encodeSecret(sock, pin)
-        return byteArrayOf(
-            0x08, 0x02, 0x10, (-56).toByte(), 0x01,
-            0xC2.toByte(), 0x01, 0x02,
-            0x22, 0x0A, sec.size.toByte(), *sec
-        )
+
+        // Client-side PIN checksum: hash[0] must equal int(pin[0:2], 16).
+        // Matches the validation in the Python androidtvremote2 reference.
+        // If it fails, the user typed a wrong PIN — throw to surface FAILED state.
+        val expectedChecksum = pin.substring(0, 2).toInt(16)
+        if (sec[0].toInt() and 0xFF != expectedChecksum) {
+            Log.w(TAG, "PIN checksum mismatch: hash[0]=0x%02X expected=0x%02X"
+                .format(sec[0].toInt() and 0xFF, expectedChecksum))
+            throw IllegalArgumentException("Wrong PIN — checksum mismatch (hash[0]≠pin[0:2])")
+        }
+
+        return PairingProto.buildSecret(sec)
     }
 
     // ── Control messages (port 6466) ──────────────────────────────────────────
@@ -264,9 +284,10 @@ class GoogleTvController(
      * Suspends at WAITING_FOR_PIN until [submitPin] is called.
      */
     override suspend fun pair(): Boolean = withContext(Dispatchers.IO) {
-        runCatching {
-            onPairingState(PairingState.CONNECTING)
-            val sock = openSslSocket(PAIR_PORT)
+        onPairingState(PairingState.CONNECTING)
+        var sock: SSLSocket? = null
+        try {
+            sock = openSslSocket(PAIR_PORT)
 
             send(sock, msgPairRequest());  recv(sock)   // state 0 → 1
             send(sock, msgOption());       recv(sock)   // state 1 → 2
@@ -274,29 +295,43 @@ class GoogleTvController(
 
             onPairingState(PairingState.WAITING_FOR_PIN)
             val pin = withTimeoutOrNull(120_000L) { pinChannel.receive() }
-            if (pin == null) { sock.close(); onPairingState(PairingState.FAILED); return@withContext false }
+            if (pin == null) {
+                Log.w(TAG, "pair(): PIN entry timed out (120 s)")
+                onPairingState(PairingState.FAILED); return@withContext false
+            }
 
             onPairingState(PairingState.VERIFYING_PIN)
             val secretResult = runCatching { msgSecret(sock, pin) }
             if (secretResult.isFailure) {
-                sock.close()
                 Log.e(TAG, "PIN encoding failed: ${secretResult.exceptionOrNull()?.message}")
-                onPairingState(PairingState.FAILED)
-                return@withContext false
+                onPairingState(PairingState.FAILED); return@withContext false
             }
 
             send(sock, secretResult.getOrThrow())
             val resp = runCatching { recv(sock) }.getOrElse { byteArrayOf() }
-            sock.close()
 
-            // A non-empty response with no error byte means success
-            val ok = resp.isNotEmpty()
+            Log.d(TAG, "Pairing response: ${resp.size} bytes  ${resp.joinToString { "0x%02X".format(it) }}")
+
+            val statusCode = PairingProto.parseStatus(resp)
+            val ok = when {
+                statusCode == PairingProto.STATUS_OK        -> { Log.i(TAG, "Pairing OK (status=200)"); true }
+                statusCode == PairingProto.STATUS_BAD_SECRET-> { Log.e(TAG, "Pairing FAILED: 402 BAD_SECRET"); false }
+                statusCode > 0                              -> { Log.w(TAG, "Pairing FAILED: status=$statusCode"); false }
+                PairingProto.containsStatusOk(resp)         -> { Log.i(TAG, "Pairing OK (status=200 fallback scan)"); true }
+                resp.isEmpty()                              -> { Log.w(TAG, "Pairing FAILED: empty response"); false }
+                else                                        -> { Log.w(TAG, "Pairing FAILED: unrecognised response"); false }
+            }
+
             onPairingState(if (ok) PairingState.PAIRED else PairingState.FAILED)
-            Log.i(TAG, if (ok) "Pairing OK" else "Pairing FAILED: ${resp.toList()}")
             ok
-        }.getOrElse { e ->
-            Log.e(TAG, "pair() exception: ${e.message}", e)
-            onPairingState(PairingState.FAILED); false
+
+        } catch (e: Exception) {
+            // Log the EXACT exception so user can grep Logcat for "PAIRING"
+            Log.e(TAG, "pair() FAILED [${e::class.simpleName}]: ${e.message}", e)
+            onPairingState(PairingState.FAILED)
+            false
+        } finally {
+            runCatching { sock?.close() }
         }
     }
 
@@ -430,6 +465,33 @@ class GoogleTvController(
     }
 
     override suspend fun sendText(text: String) {
+        if (text.isBlank()) return
+
+        // Reliable path: ADB text injection when available. Some Google TV builds
+        // map remote key-inject letters incorrectly in search IME (e.g. always 'A').
+        val injectedByAdb = runCatching {
+            val adb = AndroidTvController(device)
+            val ok = withTimeoutOrNull(2500L) { adb.connect() } ?: false
+            if (!ok) return@runCatching false
+            try {
+                adb.sendText(text)
+                true
+            } finally {
+                runCatching { adb.disconnect() }
+            }
+        }.getOrDefault(false)
+
+        if (injectedByAdb) return
+
+        // Do not degrade to keycode injection for alphabetic text.
+        // On several Google TV firmware/IME combinations this path maps letters
+        // incorrectly (commonly all become 'A'). Surface an actionable error instead.
+        if (text.any { it.isLetter() }) {
+            throw IllegalStateException(
+                "Google TV cần ADB được cấp quyền để nhập chữ chính xác. Hãy bật ADB over network và chấp nhận fingerprint trên TV."
+            )
+        }
+
         for (ch in text) {
             val code = when {
                 ch in '0'..'9' -> 7 + (ch - '0')

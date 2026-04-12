@@ -112,8 +112,15 @@ class LgWebOsController(
     }.toString()
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        if (!TransportSecurityPolicy.allowInsecureDeviceProtocol("LG WebOS SSAP over ws://")) {
+            return@withContext false
+        }
         val url = "ws://${device.ip}:${device.port}"
-        val request = Request.Builder().url(url).build()
+        val requestBuilder = Request.Builder().url(url)
+        if (!device.token.isNullOrEmpty()) {
+            requestBuilder.addHeader("Authorization", "Bearer ${device.token}")
+        }
+        val request = requestBuilder.build()
         val deferred = CompletableDeferred<Boolean>()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {

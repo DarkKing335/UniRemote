@@ -2,25 +2,12 @@
 <!--
   Network Security Config for UniRemote
   ─────────────────────────────────────────────────────────────────────────
-  UniRemote communicates exclusively with devices on the local LAN (TVs).
-  TV control protocols (Samsung WS, LG SSAP, Roku ECP) use plaintext
-  WebSocket (ws://) or HTTP over the local network — TLS is not supported
-  by the TV firmware in most cases.
-
-  The <domain> tag in network-security-config matches hostname STRINGS, NOT
-  IP subnet CIDRs. Listing '192.168.0.0' as a <domain> has no effect for
-  IP-addressed connections — it would only match the literal hostname string
-  "192.168.0.0", which is never used.
-
-  CORRECT approach for a LAN-only remote app: allow cleartext at base-config
-  level. Google TV pairing traffic uses TLS (managed by the app-level
-  SSLContext, not this config).
-
-  Security boundary: this app never communicates with the public internet.
-  Allowing cleartext at base-config does NOT expose user data.
+    Production lock policy: cleartext traffic is fully disabled.
+    Any transport that requires plaintext HTTP/ws:// must be migrated to
+    secure alternatives before public release.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <!-- Trust system CAs for any HTTPS calls (e.g. Play Store, update checks) -->
             <certificates src="system" />

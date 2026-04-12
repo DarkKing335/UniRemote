@@ -15,6 +15,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 
 class AppPreferences(private val context: Context) {
     private val gson = Gson()
+    private val secureStore = SecureCredentialStore(context)
 
     companion object {
         // Legacy single-device keys (kept for migration compatibility)
@@ -94,20 +95,24 @@ class AppPreferences(private val context: Context) {
     // ── Known devices (multi-device persistence) ──────────────────────────────
 
     val knownDevices: Flow<List<KnownDevice>> = context.dataStore.data.map { prefs ->
-        deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "")
+        deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "").map { attachSecureToken(it) }
     }
 
     suspend fun getKnownDevicesOnce(): List<KnownDevice> {
         return context.dataStore.data.map { prefs ->
-            deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "")
+            deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "").map { attachSecureToken(it) }
         }.first()
     }
 
     suspend fun upsertKnownDevice(device: KnownDevice) {
+        if (!device.token.isNullOrBlank()) {
+            secureStore.putDeviceToken(device.id, device.token)
+        }
+        val persisted = device.copy(token = null)
         context.dataStore.edit { prefs ->
             val current = deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "").toMutableList()
-            val idx = current.indexOfFirst { it.id == device.id }
-            if (idx >= 0) current[idx] = device else current.add(device)
+            val idx = current.indexOfFirst { it.id == persisted.id }
+            if (idx >= 0) current[idx] = persisted else current.add(persisted)
             // Keep at most 20 known devices, sorted by lastConnectedMs DESC
             val trimmed = current.sortedByDescending { it.lastConnectedMs }.take(20)
             prefs[KEY_KNOWN_DEVICES] = serializeKnownDevices(trimmed)
@@ -137,10 +142,29 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun deleteKnownDevice(id: String) {
+        secureStore.removeDeviceToken(id)
         context.dataStore.edit { prefs ->
             val current = deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "").toMutableList()
             current.removeAll { it.id == id }
             prefs[KEY_KNOWN_DEVICES] = serializeKnownDevices(current)
+        }
+    }
+
+    suspend fun migrateKnownDeviceTokensToSecureStore() {
+        context.dataStore.edit { prefs ->
+            val current = deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "")
+            if (current.none { !it.token.isNullOrBlank() }) {
+                return@edit
+            }
+
+            current.forEach { device ->
+                if (!device.token.isNullOrBlank()) {
+                    secureStore.putDeviceToken(device.id, device.token)
+                }
+            }
+
+            val sanitized = current.map { it.copy(token = null) }
+            prefs[KEY_KNOWN_DEVICES] = serializeKnownDevices(sanitized)
         }
     }
 
@@ -179,6 +203,18 @@ class AppPreferences(private val context: Context) {
                 isOnline        = p[9] == "1"
             )
         }
+    }
+
+    private fun attachSecureToken(device: KnownDevice): KnownDevice {
+        val encryptedToken = secureStore.getDeviceToken(device.id)
+        if (!encryptedToken.isNullOrBlank()) {
+            return device.copy(token = encryptedToken)
+        }
+        if (!device.token.isNullOrBlank()) {
+            secureStore.putDeviceToken(device.id, device.token)
+            return device.copy(token = device.token)
+        }
+        return device.copy(token = null)
     }
 
     // ── User macros ───────────────────────────────────────────────────────────

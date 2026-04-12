@@ -20,7 +20,6 @@ import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
 import com.example.uniremote.ui.screens.settings.ConnectedDeviceSection
-import com.example.uniremote.ui.screens.settings.ConnectivityBentoGrid
 import com.example.uniremote.ui.screens.settings.KnownDevicesSection
 import com.example.uniremote.ui.screens.settings.MacroManagerCard
 import com.example.uniremote.ui.screens.settings.ScanButtonSection
@@ -93,7 +92,6 @@ fun SettingsScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                     onWakeTV             = { vm.wakeTV() },
                     onDisconnect         = { vm.disconnect() }
                 )
-                ConnectivityBentoGrid()
                 ScanButtonSection(
                     isScanning   = isScanning,
                     discovered   = discovered,

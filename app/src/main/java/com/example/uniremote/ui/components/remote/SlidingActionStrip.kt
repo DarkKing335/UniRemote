@@ -1,6 +1,7 @@
 package com.example.uniremote.ui.components.remote
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,11 +13,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Canvas
 import com.example.uniremote.network.TvKey
 import com.example.uniremote.ui.components.PremiumBtn
 import com.example.uniremote.viewmodel.RemoteViewModel
@@ -49,20 +57,69 @@ fun SlidingActionButtonStrip(
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val itemWidth = (this.maxWidth - (stripGap * 2)) / 3
+        val sweepShift = (listState.firstVisibleItemIndex * 100 + listState.firstVisibleItemScrollOffset).toFloat()
+        val overlayShape = RoundedCornerShape(10.dp)
+        val strokeWidth = 2.dp
 
-        LazyRow(
-            state = listState,
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(stripGap)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(overlayShape)
         ) {
-            items(actions) { item ->
-                PremiumBtn(
-                    modifier = Modifier.width(itemWidth).height(56.dp),
-                    text     = item.text,
-                    icon     = item.icon,
-                    fontSize = item.fontSize,
-                    shape    = stripShape,
-                    onClick  = { item.key?.let { vm.sendKey(it) } }
+            LazyRow(
+                state = listState,
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(stripGap)
+            ) {
+                items(actions) { item ->
+                    PremiumBtn(
+                        modifier = Modifier.width(itemWidth).height(56.dp),
+                        text     = item.text,
+                        icon     = item.icon,
+                        fontSize = item.fontSize,
+                        shape    = stripShape,
+                        onClick  = { item.key?.let { vm.sendKey(it) } }
+                    )
+                }
+            }
+
+            Canvas(modifier = Modifier.matchParentSize()) {
+                val width = size.width
+                val beamStart = (sweepShift % (width + 220f)) - 220f
+                val beamEnd = beamStart + 220f
+
+                drawRect(
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            Color(0x66FF595E),
+                            Color(0x66FFCA3A),
+                            Color(0x668AC926),
+                            Color(0x66198BE2),
+                            Color.Transparent
+                        ),
+                        start = Offset(beamStart, 0f),
+                        end = Offset(beamEnd, size.height)
+                    ),
+                    blendMode = BlendMode.Screen
+                )
+
+                // Subtle neon rail so the strip reads as active during swipe.
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color(0x66FF595E),
+                            Color(0x66FFCA3A),
+                            Color(0x668AC926),
+                            Color(0x66198BE2)
+                        ),
+                        startX = 0f,
+                        endX = width
+                    ),
+                    start = Offset(0f, size.height - strokeWidth.toPx()),
+                    end = Offset(width, size.height - strokeWidth.toPx()),
+                    strokeWidth = strokeWidth.toPx(),
+                    cap = Stroke.DefaultCap
                 )
             }
         }

@@ -4,15 +4,18 @@ import android.content.Context
 import android.net.Uri
 import fi.iki.elonen.NanoHTTPD
 import java.io.FileNotFoundException
-import java.net.URLEncoder
-import java.util.concurrent.ConcurrentHashMap
 
 class NanoHttpMediaServer(
     private val context: Context,
     port: Int = 8080
 ) : NanoHTTPD(port) {
 
-    private val routes = ConcurrentHashMap<String, Route>()
+    companion object {
+        const val ACTIVE_MEDIA_PATH: String = "media"
+    }
+
+    @Volatile
+    private var activeRoute: Route? = null
 
     data class Route(
         val uri: Uri,
@@ -20,14 +23,13 @@ class NanoHttpMediaServer(
         val displayName: String
     )
 
-    fun addMedia(uri: Uri, mimeType: String, displayName: String): String {
-        val token = URLEncoder.encode(displayName, "UTF-8") + "-" + System.currentTimeMillis()
-        routes[token] = Route(uri, mimeType, displayName)
-        return token
+    fun setActiveMedia(uri: Uri, mimeType: String, displayName: String): String {
+        activeRoute = Route(uri, mimeType, displayName)
+        return ACTIVE_MEDIA_PATH
     }
 
-    fun removeRoute(token: String) {
-        routes.remove(token)
+    fun clearActiveMedia() {
+        activeRoute = null
     }
 
     override fun serve(session: IHTTPSession): Response {
@@ -35,8 +37,12 @@ class NanoHttpMediaServer(
             return newFixedLengthResponse(Response.Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "Only GET is allowed")
         }
 
-        val token = session.uri.removePrefix("/")
-        val route = routes[token]
+        val path = session.uri.removePrefix("/")
+        if (path != ACTIVE_MEDIA_PATH) {
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Media route not found")
+        }
+
+        val route = activeRoute
             ?: return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Media route not found")
 
         return try {

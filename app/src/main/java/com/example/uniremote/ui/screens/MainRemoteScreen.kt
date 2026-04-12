@@ -60,8 +60,17 @@ private val remoteTabs = listOf(
 fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     var selectedRemoteTab by rememberSaveable { mutableStateOf(0) }
     val status by vm.connectionStatus.collectAsStateWithLifecycle()
+    val connectedDevice by vm.connectedDevice.collectAsStateWithLifecycle()
     val isConnecting = status is ConnectionStatus.Connecting
     val snackbarHostState = remember { SnackbarHostState() }
+
+    val remoteTopTitle = connectedDevice?.name?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.main_remote_no_tv)
+    val remotePowerStatus = if (status is ConnectionStatus.Connected) {
+        stringResource(R.string.main_remote_status_on)
+    } else {
+        stringResource(R.string.main_remote_status_off)
+    }
 
     LaunchedEffect(Unit) {
         vm.toastMessage.collect { message ->
@@ -70,7 +79,13 @@ fun MainRemoteScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     }
 
     Scaffold(
-        topBar = { TopBar(title = stringResource(R.string.main_remote_title), onPowerClick = { vm.power() }) },
+        topBar = {
+            TopBar(
+                title = remoteTopTitle,
+                subtitle = remotePowerStatus,
+                onPowerClick = { vm.power() }
+            )
+        },
         bottomBar = { BottomNavBar(currentTab = NavigationTab.REMOTE, onTabSelected = onNavigate) },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = Color.Transparent

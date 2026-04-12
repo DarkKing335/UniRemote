@@ -14,10 +14,19 @@ android {
         versionCode = 1
         versionName = "1.0"
 
+        // Production defaults: insecure LAN controller protocols and plaintext DLNA casting
+        // are disabled unless explicitly enabled in non-release builds.
+        buildConfigField("boolean", "ENABLE_INSECURE_DEVICE_PROTOCOLS", "false")
+        buildConfigField("boolean", "ENABLE_INSECURE_DLNA_CASTING", "false")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "ENABLE_INSECURE_DEVICE_PROTOCOLS", "true")
+            buildConfigField("boolean", "ENABLE_INSECURE_DLNA_CASTING", "true")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -34,6 +43,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -51,6 +61,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.datastore.preferences)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation(libs.okhttp)
     implementation("dev.mobile:dadb:1.2.10")
     implementation("com.google.code.gson:gson:2.10.1")

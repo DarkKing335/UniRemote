@@ -1,6 +1,7 @@
 package com.example.uniremote.network
 
 import android.util.Log
+import com.example.uniremote.BuildConfig
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.domain.ConnectionStatus
@@ -22,6 +23,7 @@ class DeviceConnectionManager {
     var onTokenReceived: ((String) -> Unit)? = null
     private val TAG = "DeviceConnManager"
     private val CONNECT_TIMEOUT_MS = 10_000L   // raised from 4s — some TVs are slow to respond
+    private val SILENT_CONNECT_TIMEOUT_MS = 5_000L  // shorter for background auto-connect
 
     private val _connectionStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -64,17 +66,19 @@ class DeviceConnectionManager {
     suspend fun tryConnectSilently(device: TvDevice): Boolean {
         return runCatching {
             controller?.disconnect()
-            // Lazy: create and try each controller one at a time.
-            // Unused controllers are never instantiated, so their SSL sockets/scopes are never opened.
+            // Use a shorter timeout for silent background attempts — we do not want
+            // the startup auto-connect to block the UI for 10s per controller per device.
             for (factory in controllerFactories(device)) {
                 val ctrl = factory()
-                val success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
+                val success = withTimeoutOrNull(SILENT_CONNECT_TIMEOUT_MS) {
                     runCatching { ctrl.connect() }.getOrElse { false }
                 } ?: false
                 if (success) {
                     controller = ctrl
                     _connectedDevice.value = device
                     _connectionStatus.value = ConnectionStatus.Connected
+                    _isAdbFallbackMode.value = ctrl is AndroidTvController
+                    Log.i(TAG, "Auto-connected to ${device.name} via ${ctrl::class.simpleName}")
                     return@runCatching true
                 }
                 ctrl.disconnect()
@@ -115,8 +119,13 @@ class DeviceConnectionManager {
                 _isAdbFallbackMode.value = chosenCtrl is AndroidTvController
                 _connectionStatus.value = ConnectionStatus.Connected
             } else {
+                val compatibilityBlocked = isCompatibilityBlocked(device)
                 _connectionStatus.value = ConnectionStatus.Error(
-                    "Khong the ket noi voi ${device.name}. Kiem tra TV dang bat va cung mang Wi-Fi."
+                    if (compatibilityBlocked) {
+                        "Ket noi bi chan boi che do bao mat production (insecure protocol disabled)."
+                    } else {
+                        "Khong the ket noi voi ${device.name}. Kiem tra TV dang bat va cung mang Wi-Fi."
+                    }
                 )
                 controller = null
                 _connectedDevice.value = null
@@ -140,29 +149,72 @@ class DeviceConnectionManager {
     }
 
     suspend fun sendKey(key: TvKey) {
-        withContext(Dispatchers.IO) { controller?.sendKey(key) }
+        withContext(Dispatchers.IO) { requireController().sendKey(key) }
     }
 
     suspend fun sendText(text: String) {
-        withContext(Dispatchers.IO) { controller?.sendText(text) }
+        withContext(Dispatchers.IO) { requireController().sendText(text) }
     }
 
     suspend fun moveMouse(dx: Float, dy: Float) {
-        withContext(Dispatchers.IO) { controller?.moveMouse(dx, dy) }
+        withContext(Dispatchers.IO) { requireController().moveMouse(dx, dy) }
     }
 
     suspend fun tapMouse() {
-        withContext(Dispatchers.IO) { controller?.tapMouse() }
+        withContext(Dispatchers.IO) { requireController().tapMouse() }
     }
 
     suspend fun getInstalledApps(): List<TvApp> {
         return withContext(Dispatchers.IO) {
-            controller?.getInstalledApps() ?: emptyList()
+            val primaryController = requireController()
+            val primary = primaryController.getInstalledApps()
+            if (primary.isNotEmpty()) return@withContext primary
+
+            // Primary controller returned nothing (e.g. GoogleTvController always returns []).
+            // Try fetching via ADB — the only protocol that can list installed packages.
+            val device = _connectedDevice.value ?: return@withContext emptyList()
+            val adb = AndroidTvController(device)
+            val result = runCatching {
+                val ok = withTimeoutOrNull(8_000L) { adb.connect() } ?: false
+                if (ok) adb.getInstalledApps() else emptyList()
+            }.getOrElse { emptyList() }
+            runCatching { adb.disconnect() }
+            result
         }
     }
 
     suspend fun launchApp(appId: String) {
-        withContext(Dispatchers.IO) { controller?.launchApp(appId) }
+        withContext(Dispatchers.IO) {
+            val primaryController = requireController()
+            val primaryResult = runCatching { primaryController.launchApp(appId) }
+            if (primaryResult.isSuccess) return@withContext
+
+            val primaryError = primaryResult.exceptionOrNull()
+            val device = _connectedDevice.value
+            val isAndroidFamily = device?.brand in setOf(
+                TvBrand.GOOGLE_TV,
+                TvBrand.ANDROID,
+                TvBrand.XIAOMI,
+                TvBrand.FIRE_TV,
+                TvBrand.SONY
+            )
+
+            // Fallback: Google TV Remote protocol cannot launch apps directly.
+            // Use ADB shell launch when available.
+            if (device != null && isAndroidFamily) {
+                val adb = AndroidTvController(device)
+                val launchedByAdb = runCatching {
+                    val ok = withTimeoutOrNull(8_000L) { adb.connect() } ?: false
+                    if (!ok) return@runCatching false
+                    adb.launchApp(appId)
+                    true
+                }.getOrDefault(false)
+                runCatching { adb.disconnect() }
+                if (launchedByAdb) return@withContext
+            }
+
+            throw (primaryError ?: IllegalStateException("Không thể mở ứng dụng $appId"))
+        }
     }
 
     // ── Google TV Pairing ──────────────────────────────────────────────────────
@@ -242,5 +294,19 @@ class DeviceConnectionManager {
     fun onCleared() {
         controller?.disconnect()
         googleTvPairingCtrl = null
+    }
+
+    private fun requireController(): TvController {
+        return controller ?: throw IllegalStateException("No active TV connection")
+    }
+
+    private fun isCompatibilityBlocked(device: TvDevice): Boolean {
+        if (BuildConfig.ENABLE_INSECURE_DEVICE_PROTOCOLS) return false
+        return when (device.brand) {
+            TvBrand.LG, TvBrand.ROKU -> true
+            TvBrand.SAMSUNG, TvBrand.UNKNOWN -> device.port != 8002
+            TvBrand.SONY -> true
+            else -> false
+        }
     }
 }

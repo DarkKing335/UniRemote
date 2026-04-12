@@ -95,12 +95,37 @@ class SamsungTvController(
     private val appNameB64: String
         get() = Base64.encodeToString(APP_NAME.toByteArray(), Base64.NO_WRAP)
 
+    private fun canUseInsecureSamsungProtocol(): Boolean {
+        return TransportSecurityPolicy.allowInsecureDeviceProtocol(
+            "Samsung Remote API over ws/http (non-TLS)"
+        )
+    }
+
+    private fun samsungRestBaseUrl(): String? {
+        return if (device.port == 8002) {
+            "https://${device.ip}:${device.port}"
+        } else if (canUseInsecureSamsungProtocol()) {
+            "http://${device.ip}:${device.port}"
+        } else {
+            null
+        }
+    }
+
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
-        val scheme = if (device.port == 8002) "wss" else "ws"
-        val tokenParam = if (!device.token.isNullOrEmpty()) "&token=${device.token}" else ""
+        val secureTransport = device.port == 8002
+        if (!secureTransport && !canUseInsecureSamsungProtocol()) {
+            return@withContext false
+        }
+
+        val scheme = if (secureTransport) "wss" else "ws"
         val url = "$scheme://${device.ip}:${device.port}/api/v2/channels/samsung.remote.control" +
-                  "?name=$appNameB64$tokenParam"
-        val request = Request.Builder().url(url).build()
+                  "?name=$appNameB64"
+        val requestBuilder = Request.Builder().url(url)
+        if (!device.token.isNullOrEmpty()) {
+            // Samsung token must never be placed in URL parameters.
+            requestBuilder.addHeader("Authorization", "Bearer ${device.token}")
+        }
+        val request = requestBuilder.build()
         val deferred = CompletableDeferred<Boolean>()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
@@ -189,24 +214,39 @@ class SamsungTvController(
     }
 
     override suspend fun sendText(text: String): Unit = withContext(Dispatchers.IO) {
+        if (text.isBlank()) return@withContext
+
         // Samsung Tizen text input protocol:
-        //   Cmd        = "SendInputString"  (the action)
-        //   DataOfCmd  = <text to type>     (the data)
-        // Note: the previous code had Cmd and DataOfCmd swapped — this is the correct order.
-        val payload = JSONObject().apply {
+        // Cmd=<base64(utf8 text)>, DataOfCmd="base64", Option="false", TypeOfRemote="SendInputString"
+        val encoded = Base64.encodeToString(text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val inputPayload = JSONObject().apply {
             put("method", "ms.remote.control")
             put("params", JSONObject().apply {
-                put("Cmd", "SendInputString")
-                put("DataOfCmd", text)
+                put("Cmd", encoded)
+                put("DataOfCmd", "base64")
+                put("Option", "false")
+                put("TypeOfRemote", "SendInputString")
+            })
+        }
+        webSocket?.send(inputPayload.toString())
+        kotlinx.coroutines.delay(45)
+
+        val endPayload = JSONObject().apply {
+            put("method", "ms.remote.control")
+            put("params", JSONObject().apply {
+                put("Cmd", "")
+                put("DataOfCmd", "")
+                put("Option", "false")
                 put("TypeOfRemote", "SendInputEnd")
             })
         }
-        webSocket?.send(payload.toString())
+        webSocket?.send(endPayload.toString())
     }
 
     override suspend fun getInstalledApps(): List<TvApp> = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "http://${device.ip}:${device.port}/api/v2/applications"
+            val baseUrl = samsungRestBaseUrl() ?: return@withContext emptyList()
+            val url = "$baseUrl/api/v2/applications"
             val request = Request.Builder().url(url).build()
             // Use .use{} to guarantee the response body is always closed, preventing connection leaks
             client.newCall(request).execute().use { response ->
@@ -227,7 +267,8 @@ class SamsungTvController(
 
     override suspend fun launchApp(appId: String): Unit = withContext(Dispatchers.IO) {
         runCatching {
-            val url = "http://${device.ip}:${device.port}/api/v2/applications/$appId"
+            val baseUrl = samsungRestBaseUrl() ?: return@withContext
+            val url = "$baseUrl/api/v2/applications/$appId"
             val body = ByteArray(0).toRequestBody()
             val request = Request.Builder().url(url).post(body).build()
             client.newCall(request).execute().close()

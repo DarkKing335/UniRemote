@@ -37,13 +37,17 @@ class DeviceDiscovery(private val context: Context) {
 
     private val serviceTypes = listOf(
         // Samsung
+        "_samsungmsf._tcp"      to TvBrand.SAMSUNG,
         "_samsungsmarthome._tcp" to TvBrand.SAMSUNG,
         "_samsung-remote._tcp"   to TvBrand.SAMSUNG,
         // LG
         "_webostv._tcp"          to TvBrand.LG,
+        "_lgsmarttv._tcp"        to TvBrand.LG,
         // Google TV Remote v2 (Standard API on port 6466/6467)
         // Sony Bravia Android TV, Xiaomi, Nvidia Shield, etc. all advertise this
         "_androidtvremote2._tcp" to TvBrand.GOOGLE_TV,
+        "_androidtv._tcp"        to TvBrand.GOOGLE_TV,
+        "_googlecast._tcp"       to TvBrand.GOOGLE_TV,
         // Sony proprietary IRCC-IP (pre-Android TV / older Bravia models, port 80)
         "_sony-ircc._tcp"        to TvBrand.SONY,
         // Sony SDCP / DIAL discovery (older models)
@@ -61,8 +65,54 @@ class DeviceDiscovery(private val context: Context) {
      */
     fun discover(): Flow<List<TvDevice>> = callbackFlow {
         val discovered       = java.util.concurrent.ConcurrentHashMap<String, TvDevice>()
+        val serviceIndex     = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val serviceRefCount  = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        val discoveryScore   = java.util.concurrent.ConcurrentHashMap<String, Int>()
         val listeners        = mutableListOf<NsdManager.DiscoveryListener>()
         val startedListeners = mutableSetOf<NsdManager.DiscoveryListener>()
+
+        fun serviceIdentity(serviceType: String?, serviceName: String?): String {
+            return "${serviceType ?: "unknown"}|${serviceName ?: ""}"
+        }
+
+        fun candidateScore(serviceType: String, brand: TvBrand, port: Int): Int {
+            val base = when {
+                serviceType.contains("androidtvremote2", ignoreCase = true) -> 120
+                serviceType.contains("adb-tls-connect", ignoreCase = true) -> 110
+                serviceType.contains("samsungmsf", ignoreCase = true) -> 100
+                serviceType.contains("samsung-remote", ignoreCase = true) -> 95
+                serviceType.contains("webostv", ignoreCase = true) -> 95
+                serviceType.contains("lgsmarttv", ignoreCase = true) -> 90
+                serviceType.contains("sony-ircc", ignoreCase = true) -> 85
+                serviceType.contains("androidtvremote", ignoreCase = true) -> 80
+                serviceType.contains("googlecast", ignoreCase = true) -> 60
+                serviceType.contains("dial", ignoreCase = true) -> 50
+                else -> 40
+            }
+            val portBonus = when (brand) {
+                TvBrand.GOOGLE_TV, TvBrand.ANDROID, TvBrand.XIAOMI -> if (port == 6466 || port == 6467) 12 else 0
+                TvBrand.SAMSUNG -> if (port == 8002 || port == 8001) 10 else 0
+                TvBrand.LG -> if (port == 3000 || port == 3001) 10 else 0
+                TvBrand.ROKU -> if (port == 8060) 10 else 0
+                else -> 0
+            }
+            return base + portBonus
+        }
+
+        fun incServiceRef(deviceId: String) {
+            serviceRefCount[deviceId] = (serviceRefCount[deviceId] ?: 0) + 1
+        }
+
+        fun decServiceRef(deviceId: String) {
+            val next = (serviceRefCount[deviceId] ?: 1) - 1
+            if (next <= 0) {
+                serviceRefCount.remove(deviceId)
+                discovered.remove(deviceId)
+                discoveryScore.remove(deviceId)
+            } else {
+                serviceRefCount[deviceId] = next
+            }
+        }
 
         // ── Serial resolve queue ──────────────────────────────────────────────
         // NsdManager only allows ONE active resolve at a time.
@@ -97,6 +147,8 @@ class DeviceDiscovery(private val context: Context) {
                     val mac  = svcInfo.attributes["mac"]
                         ?.let { String(it) } ?: ""
                     val id   = DeviceIdUtil.stableId(mac = mac, ip = ip, name = name)
+                    val serviceType = svcInfo.serviceType ?: task.info.serviceType ?: "unknown"
+                    val identity = serviceIdentity(serviceType, svcInfo.serviceName ?: task.info.serviceName)
 
                     val detectedBrand = when {
                         brand == TvBrand.GOOGLE_TV -> brand // Force Google TV protocol
@@ -118,7 +170,21 @@ class DeviceDiscovery(private val context: Context) {
                         port  = port
                         // ssid intentionally NOT set here – Repository attaches it on save
                     )
-                    discovered[id] = device
+
+                    val score = candidateScore(serviceType, detectedBrand, port)
+                    val previousId = serviceIndex.put(identity, id)
+                    if (previousId == null) {
+                        incServiceRef(id)
+                    } else if (previousId != id) {
+                        decServiceRef(previousId)
+                        incServiceRef(id)
+                    }
+
+                    val previousScore = discoveryScore[id] ?: Int.MIN_VALUE
+                    if (!discovered.containsKey(id) || score >= previousScore) {
+                        discovered[id] = device
+                        discoveryScore[id] = score
+                    }
                     trySend(discovered.values.toList())
                     processResolveQueue()
                 }
@@ -143,7 +209,11 @@ class DeviceDiscovery(private val context: Context) {
                     startedListeners.remove(this)
                 }
                 override fun onServiceLost(info: NsdServiceInfo) {
-                    discovered.entries.removeIf { it.value.name == info.serviceName }
+                    val identity = serviceIdentity(info.serviceType, info.serviceName)
+                    val id = serviceIndex.remove(identity)
+                    if (id != null) {
+                        decServiceRef(id)
+                    }
                     trySend(discovered.values.toList())
                 }
                 override fun onServiceFound(info: NsdServiceInfo) {
