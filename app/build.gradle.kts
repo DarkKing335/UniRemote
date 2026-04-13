@@ -78,6 +78,7 @@ dependencies {
     implementation("org.jupnp:org.jupnp:3.0.3")
     implementation("org.jupnp:org.jupnp.support:3.0.3")
     implementation("org.jupnp:org.jupnp.android:3.0.3")
+    implementation("com.google.android.gms:play-services-cast-framework:22.1.0")
 
     testImplementation(libs.junit)
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.3.1")

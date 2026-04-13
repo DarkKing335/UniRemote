@@ -464,8 +464,12 @@ class RemoteViewModel @JvmOverloads constructor(
     /** Unbind DLNA service when Cast screen is no longer visible. */
     fun unbindCastService() = castManager.unbind()
 
-    /** Re-run UPnP search for DLNA renderers. */
-    fun refreshCastDevices() = castManager.discoverDevices()
+    /** Re-run UPnP search for DLNA renderers. Also tries unicast to connected TV's IP. */
+    fun refreshCastDevices() {
+        // Pass the connected TV's IP as unicast hint — bypasses multicast routing issues
+        castManager.setHintDeviceIp(connectedDevice.value?.ip)
+        castManager.discoverDevices()
+    }
 
     /**
      * Registers [uri] with the local HTTP media server and sends a DLNA
@@ -478,11 +482,16 @@ class RemoteViewModel @JvmOverloads constructor(
         rendererUdn: String,
         rendererName: String
     ) {
+        castManager.selectRenderer(rendererUdn, rendererName)
+
         val mediaUrl = uri.toString()
         if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
             runCatching {
-                castManager.selectRenderer(rendererUdn, rendererName)
-                castManager.castMedia(mediaUrl)
+                castManager.castMedia(
+                    url = mediaUrl,
+                    title = title,
+                    mimeType = inferMimeTypeFromUrl(mediaUrl)
+                )
             }.onFailure {
                 reportFailure("castMediaUrl", it, "Không thể cast URL media tới TV")
             }
@@ -491,6 +500,25 @@ class RemoteViewModel @JvmOverloads constructor(
 
         val resolvedMimeType = mimeType.ifBlank {
             getApplication<Application>().contentResolver.getType(uri) ?: "video/*"
+        }
+
+        if (rendererUdn.startsWith("gcast:")) {
+            runCatching {
+                val mediaUrl = castRepository.buildLocalMediaUrl(
+                    uri = uri,
+                    mimeType = resolvedMimeType,
+                    title = title
+                ) ?: error("Cannot prepare local media URL for Chromecast")
+
+                castManager.castMedia(
+                    url = mediaUrl,
+                    title = title,
+                    mimeType = resolvedMimeType
+                )
+            }.onFailure {
+                reportFailure("castLocalMediaGoogleCast", it, "Không thể cast file local lên Chromecast")
+            }
+            return
         }
 
         runCatching {
@@ -543,6 +571,12 @@ class RemoteViewModel @JvmOverloads constructor(
         runCatching {
             if (!rendererUdn.isNullOrBlank() && !rendererName.isNullOrBlank()) {
                 castManager.selectRenderer(rendererUdn, rendererName)
+
+                if (rendererUdn.startsWith("gcast:")) {
+                    _toastMessage.tryEmit(
+                        "Chromecast chưa tự phát được luồng Screen Mirroring (.h264). Dùng Cast Video/Image hoặc tính năng Cast màn hình hệ thống."
+                    )
+                }
             }
             castManager.configureMirroringProjection(resultCode, data)
             castManager.startMirroring()
@@ -618,6 +652,23 @@ class RemoteViewModel @JvmOverloads constructor(
 
     private fun logTelemetry(action: String, throwable: Throwable) {
         Log.e(TAG, "action=$action failed: ${throwable::class.java.simpleName}: ${throwable.message}", throwable)
+    }
+
+    private fun inferMimeTypeFromUrl(url: String): String {
+        val lower = url.lowercase(Locale.US)
+        return when {
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+            lower.endsWith(".png") -> "image/png"
+            lower.endsWith(".gif") -> "image/gif"
+            lower.endsWith(".webp") -> "image/webp"
+            lower.endsWith(".mp3") -> "audio/mpeg"
+            lower.endsWith(".m3u8") -> "application/vnd.apple.mpegurl"
+            lower.endsWith(".h264") -> "video/avc"
+            lower.endsWith(".mkv") -> "video/x-matroska"
+            lower.endsWith(".webm") -> "video/webm"
+            lower.endsWith(".mov") -> "video/quicktime"
+            else -> "video/mp4"
+        }
     }
 
     private suspend fun fallbackDirectionalFromDrag(dx: Float, dy: Float) {

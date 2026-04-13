@@ -5,13 +5,20 @@ import android.content.Intent
 import com.example.uniremote.casting.dlna.DlnaCastEngine
 import com.example.uniremote.mirroring.stream.MirroringStreamCoordinator
 import com.uniremote.dlna.dlna.DlnaRenderer
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+
+private enum class CastProtocol {
+    DLNA,
+    GOOGLE_CAST
+}
 
 /**
  * Unified production cast manager that keeps DLNA casting and screen mirroring separated.
@@ -24,11 +31,56 @@ class DefaultCastManager(
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val dlnaEngine = DlnaCastEngine(castRepository)
+    private val googleCastManager: GoogleCastManager? = runCatching {
+        GoogleCastManager(application)
+    }.getOrNull()
     private val mirroringCoordinator = MirroringStreamCoordinator(application)
+    private var selectedProtocol: CastProtocol = CastProtocol.DLNA
+    private val selectedProtocolFlow = MutableStateFlow(CastProtocol.DLNA)
 
-    val castRenderers: StateFlow<List<DlnaRenderer>> = dlnaEngine.rawRenderers
-    val castState: StateFlow<CastState> = dlnaEngine.castState
-    val castPlaybackInfo: StateFlow<CastPlaybackInfo> = dlnaEngine.playbackInfo
+    private val emptyRendererFlow = MutableStateFlow<List<DlnaRenderer>>(emptyList())
+    private val emptyStateFlow = MutableStateFlow<CastState>(CastState.Idle)
+    private val emptyPlaybackFlow = MutableStateFlow(CastPlaybackInfo())
+
+    private val googleRenderers = googleCastManager?.renderers ?: emptyRendererFlow
+    private val googleState = googleCastManager?.castState ?: emptyStateFlow
+    private val googlePlaybackInfo = googleCastManager?.playbackInfo ?: emptyPlaybackFlow
+
+    val castRenderers: StateFlow<List<DlnaRenderer>> = combine(
+        dlnaEngine.rawRenderers,
+        googleRenderers
+    ) { dlna, google ->
+        (google + dlna).distinctBy { it.udn }.sortedBy { it.name }
+    }.stateIn(managerScope, SharingStarted.Eagerly, emptyList())
+
+    val castState: StateFlow<CastState> = combine(
+        dlnaEngine.castState,
+        googleState,
+        selectedProtocolFlow
+    ) { dlna, google, selected ->
+        if (selected == CastProtocol.GOOGLE_CAST) {
+            return@combine when {
+                google !is CastState.Idle && google !is CastState.Discovering -> google
+                google is CastState.Discovering -> google
+                else -> CastState.Idle
+            }
+        }
+
+        when {
+            google !is CastState.Idle && google !is CastState.Discovering -> google
+            dlna !is CastState.Idle && dlna !is CastState.Discovering -> dlna
+            google is CastState.Discovering || dlna is CastState.Discovering -> CastState.Discovering
+            else -> CastState.Idle
+        }
+    }.stateIn(managerScope, SharingStarted.Eagerly, CastState.Idle)
+
+    val castPlaybackInfo: StateFlow<CastPlaybackInfo> = combine(
+        dlnaEngine.playbackInfo,
+        googlePlaybackInfo,
+        googleState
+    ) { dlnaInfo, googleInfo, google ->
+        if (google !is CastState.Idle && google !is CastState.Discovering) googleInfo else dlnaInfo
+    }.stateIn(managerScope, SharingStarted.Eagerly, CastPlaybackInfo())
 
     val isMirroring = mirroringCoordinator.isMirroring
     val mirrorStreamUrl = mirroringCoordinator.streamUrl
@@ -37,18 +89,28 @@ class DefaultCastManager(
 
     val isCastingActive: StateFlow<Boolean> = combine(castState, isMirroring) { state, mirroring ->
         state is CastState.Casting || mirroring
-    }.stateIn(managerScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, false)
+    }.stateIn(managerScope, SharingStarted.Eagerly, false)
 
     fun bind() {
         dlnaEngine.startDiscovery()
+        googleCastManager?.startDiscovery()
     }
 
     fun unbind() {
         dlnaEngine.stopDiscovery()
+        googleCastManager?.stopDiscovery()
     }
 
     fun selectRenderer(rendererUdn: String, rendererName: String) {
-        dlnaEngine.selectRenderer(rendererUdn, rendererName)
+        if (googleCastManager != null && googleCastManager.isGoogleCastRenderer(rendererUdn)) {
+            selectedProtocol = CastProtocol.GOOGLE_CAST
+            selectedProtocolFlow.value = CastProtocol.GOOGLE_CAST
+            googleCastManager.selectRenderer(rendererUdn, rendererName)
+        } else {
+            selectedProtocol = CastProtocol.DLNA
+            selectedProtocolFlow.value = CastProtocol.DLNA
+            dlnaEngine.selectRenderer(rendererUdn, rendererName)
+        }
     }
 
     fun configureMirroringProjection(resultCode: Int, data: Intent) {
@@ -56,6 +118,7 @@ class DefaultCastManager(
     }
 
     fun stopCast() {
+        googleCastManager?.stop()
         dlnaEngine.stopCast()
     }
 
@@ -65,43 +128,89 @@ class DefaultCastManager(
     }
 
     fun toggleMute() {
-        dlnaEngine.toggleMute()
+        if (shouldUseGoogleCast()) {
+            googleCastManager?.toggleMute()
+        } else {
+            dlnaEngine.toggleMute()
+        }
     }
 
     fun getMirrorAuthorizationHeaderForManualShare(): String? {
         return mirroringCoordinator.getAuthorizationHeaderForManualShare()
     }
 
+    fun setHintDeviceIp(ip: String?) {
+        dlnaEngine.setHintIp(ip)
+    }
+
     override fun discoverDevices() {
-        dlnaEngine.startDiscovery()
-        dlnaEngine.refreshDiscovery()
+        dlnaEngine.startDiscovery()  // bind + single refresh (no double-cancel)
+        googleCastManager?.startDiscovery()
     }
 
     override fun castMedia(url: String) {
         val mediaTitle = url.substringAfterLast('/').ifBlank { "Media" }
-        dlnaEngine.sendMediaUrl(url = url, title = mediaTitle)
+        castMedia(url = url, title = mediaTitle, mimeType = "video/mp4")
+    }
+
+    fun castMedia(url: String, title: String, mimeType: String) {
+        if (shouldUseGoogleCast()) {
+            googleCastManager?.castMedia(url = url, title = title, mimeType = mimeType)
+        } else {
+            dlnaEngine.sendMediaUrl(url = url, title = title)
+        }
     }
 
     override fun play() {
-        dlnaEngine.play()
+        if (shouldUseGoogleCast()) {
+            googleCastManager?.play()
+        } else {
+            dlnaEngine.play()
+        }
     }
 
     override fun pause() {
-        dlnaEngine.pause()
+        if (shouldUseGoogleCast()) {
+            googleCastManager?.pause()
+        } else {
+            dlnaEngine.pause()
+        }
     }
 
     override fun seek(position: Long) {
-        dlnaEngine.seek(position)
+        if (shouldUseGoogleCast()) {
+            googleCastManager?.seek(position)
+        } else {
+            dlnaEngine.seek(position)
+        }
     }
 
     override fun setVolume(value: Int) {
-        dlnaEngine.setVolume(value.coerceIn(0, 100))
+        val safeValue = value.coerceIn(0, 100)
+        if (shouldUseGoogleCast()) {
+            googleCastManager?.setVolume(safeValue)
+        } else {
+            dlnaEngine.setVolume(safeValue)
+        }
     }
 
     override fun startMirroring() {
         mirroringCoordinator.start { publicEndpoint ->
-            // Mirroring stream publishing is still URL-based DLNA casting.
-            runCatching { castMedia(publicEndpoint) }
+            // Chromecast default receiver does not support raw Annex-B H264 streams
+            // (e.g. /screen.h264). Keep the local mirror endpoint available for manual
+            // playback, and only auto-push mirror URL to DLNA renderers.
+            if (shouldUseGoogleCast()) {
+                googleCastManager?.clearErrorState()
+                return@start
+            }
+
+            runCatching {
+                castMedia(
+                    url = publicEndpoint,
+                    title = "Screen Mirror",
+                    mimeType = "video/avc"
+                )
+            }
         }
     }
 
@@ -111,7 +220,16 @@ class DefaultCastManager(
 
     fun release() {
         mirroringCoordinator.release()
+        googleCastManager?.release()
         dlnaEngine.release()
         managerScope.cancel()
+    }
+
+    private fun shouldUseGoogleCast(): Boolean {
+        val activeGoogleState = googleState.value
+        return googleCastManager != null && (
+            selectedProtocol == CastProtocol.GOOGLE_CAST ||
+                (activeGoogleState !is CastState.Idle && activeGoogleState !is CastState.Discovering)
+            )
     }
 }

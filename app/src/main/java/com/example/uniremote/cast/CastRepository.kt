@@ -76,6 +76,16 @@ class CastRepository(private val context: Context) {
     private var playbackPollJob: Job? = null
     private var consecutiveTelemetryFailures: Int = 0
 
+    /** Direct HTTP/SOAP caster — used when jUPnP service is not ready. */
+    private val directCaster = DirectDlnaCaster()
+
+    /** Maps renderer UDN → device description URL (from our SSDP probe). */
+    private val rendererLocationCache = mutableMapOf<String, String>()
+
+    /** Known device IP from Settings — used for unicast SSDP fallback when multicast fails. */
+    @Volatile private var hintDeviceIp: String? = null
+    fun setHintDeviceIp(ip: String?) { hintDeviceIp = ip }
+
     // Scope used for retry logic only — cancelled in release()
     private val repoScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -295,20 +305,38 @@ class CastRepository(private val context: Context) {
         discoverySweepJob = repoScope.launch {
             repeat(3) { index ->
                 val attempt = index + 1
+
+                // Also trigger jUPnP search (best-effort; unreliable on many Android devices)
                 dlnaManager.refresh()
+
+                // PRIMARY: our own UDP M-SEARCH that actually returns and parses results
                 runCatching {
-                    kotlinx.coroutines.withContext(Dispatchers.IO) {
-                        ssdpProbe.runProbe(attempt = attempt, timeoutMs = 1800) { raw ->
-                            Log.i(TAG, raw)
+                    val found = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        ssdpProbe.discover(timeoutMs = 3000, hintIp = hintDeviceIp)
+                    }
+                    Log.i(TAG, "SSDP probe attempt=$attempt found=${found.size}: ${found.map { it.name }}")
+
+                    if (found.isNotEmpty()) {
+                        val probeRenderers = found.map {
+                            com.uniremote.dlna.dlna.DlnaRenderer(udn = it.udn, name = it.name, model = it.model)
+                        }
+                        // Cache location URLs so DirectDlnaCaster can use them
+                        found.forEach { rendererLocationCache[it.udn] = it.location }
+
+                        val merged = (_renderers.value + probeRenderers).distinctBy { it.udn }.sortedBy { it.name }
+                        _renderers.value = merged
+
+                        if (_castState.value is CastState.Discovering) {
+                            discoveryTimeoutJob?.cancel()
+                            discoveryTimeoutJob = null
+                            stateMachine.onIdle()
                         }
                     }
                 }.onFailure {
                     Log.w(TAG, "SSDP probe attempt=$attempt failed", it)
                 }
 
-                if (attempt < 3) {
-                    delay(1200L + (index * 500L))
-                }
+                if (attempt < 3) delay(1500L)
             }
         }
     }
@@ -325,15 +353,10 @@ class CastRepository(private val context: Context) {
             return "DLNA discovery requires Wi-Fi/LAN as active network."
         }
 
-        val wifiTransportActive = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-        if (wifiTransportActive && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            val hasNearbyWifiPermission =
-                appContext.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
-                    PackageManager.PERMISSION_GRANTED
-            if (!hasNearbyWifiPermission) {
-                return "Nearby Wi-Fi permission is required for DLNA scan on Android 13+."
-            }
-        }
+        // NOTE: NEARBY_WIFI_DEVICES permission is only required for WifiManager.startScan()
+        // and peer-to-peer Wi-Fi APIs. It is NOT required for DLNA SSDP UDP multicast
+        // (which uses raw DatagramSocket on port 1900). Removing this gate so jUPnP
+        // can always bind and discover renderers on LAN.
 
         if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
             return "Disable VPN and retry DLNA scan. VPN can block multicast SSDP."
@@ -356,29 +379,39 @@ class CastRepository(private val context: Context) {
     ) {
         consecutiveTelemetryFailures = 0
         val routedMediaUrl = adaptLocalUrlForRenderer(mediaUrl, rendererUdn)
-
         activeRendererUdn = rendererUdn
         stateMachine.onSendingUri(title, rendererName)
 
+        val onSuccess:  () -> Unit     = { repoScope.launch { stateMachine.onCasting(title, rendererName) } }
+        val onFailure2: (String) -> Unit = { msg -> repoScope.launch {
+            stateMachine.onError(msg); stopPlaybackPolling(resetInfo = false)
+        }}
+
+        // Try jUPnP first; fall back to DirectDlnaCaster if jUPnP is not ready
+        val cachedLocation = rendererLocationCache[rendererUdn]
         dlnaManager.cast(
             rendererUdn = rendererUdn,
-            mediaUrl = routedMediaUrl,
-            title = title,
-            onUriAccepted = {
+            mediaUrl    = routedMediaUrl,
+            title       = title,
+            onUriAccepted   = { repoScope.launch { stateMachine.onStartingPlayback(title, rendererName) } },
+            onPlaybackStarted = { repoScope.launch { stateMachine.onCasting(title, rendererName); startPlaybackPolling(rendererUdn) } },
+            onFailure = { jUpnpMsg ->
                 repoScope.launch {
-                    stateMachine.onStartingPlayback(title, rendererName)
-                }
-            },
-            onPlaybackStarted = {
-                repoScope.launch {
-                    stateMachine.onCasting(title, rendererName)
-                    startPlaybackPolling(rendererUdn)
-                }
-            },
-            onFailure = { message ->
-                repoScope.launch {
-                    stateMachine.onError(message)
-                    stopPlaybackPolling(resetInfo = false)
+                    val location = cachedLocation ?: resolveLocationForFallback(rendererUdn)
+                    if (location != null) {
+                        Log.w(TAG, "jUPnP cast failed ($jUpnpMsg), falling back to DirectDlnaCaster")
+                        directCaster.cast(
+                            udn        = rendererUdn,
+                            location   = location,
+                            mediaUrl   = routedMediaUrl,
+                            title      = title,
+                            mimeType   = "video/*",
+                            onSuccess  = onSuccess,
+                            onFailure  = onFailure2
+                        )
+                    } else {
+                        onFailure2(jUpnpMsg)
+                    }
                 }
             }
         )
@@ -387,6 +420,7 @@ class CastRepository(private val context: Context) {
     /**
      * Registers [uri] with the local HTTP server and instructs the [rendererUdn]
      * renderer to play it via AVTransport SetAVTransportURI + Play.
+     * Falls back to DirectDlnaCaster if jUPnP is not ready.
      */
     fun castMedia(
         uri: Uri,
@@ -401,45 +435,69 @@ class CastRepository(private val context: Context) {
             return
         }
         val host = getLocalIp() ?: run {
-            stateMachine.onError(
-                "Cannot resolve local IP. Ensure both devices are on the same Wi-Fi network."
-            )
+            stateMachine.onError("Cannot resolve local IP. Ensure both devices are on the same Wi-Fi network.")
             return
         }
 
         val mediaPath = server.setActiveMedia(uri, mimeType, title)
         activeRendererUdn = rendererUdn
-
-        val mediaUrl = adaptLocalUrlForRenderer("http://$host:8080/$mediaPath", rendererUdn)
+        val mediaUrl = "http://$host:8080/$mediaPath"
         stateMachine.onSendingUri(title, rendererName)
+
+        val cachedLocation = rendererLocationCache[rendererUdn]
+
+        val onSuccess:   () -> Unit      = { repoScope.launch { stateMachine.onCasting(title, rendererName); startPlaybackPolling(rendererUdn) } }
+        val onFinalFail: (String) -> Unit = { msg -> repoScope.launch { stateMachine.onError(msg); stopPlaybackPolling(resetInfo = false) } }
 
         dlnaManager.cast(
             rendererUdn = rendererUdn,
-            mediaUrl = mediaUrl,
-            title = title,
-            onUriAccepted = {
+            mediaUrl    = mediaUrl,
+            title       = title,
+            onUriAccepted     = { repoScope.launch { stateMachine.onStartingPlayback(title, rendererName) } },
+            onPlaybackStarted = { repoScope.launch { stateMachine.onCasting(title, rendererName); startPlaybackPolling(rendererUdn) } },
+            onFailure = { jUpnpMsg ->
                 repoScope.launch {
-                    stateMachine.onStartingPlayback(title, rendererName)
-                }
-            },
-            onPlaybackStarted = {
-                repoScope.launch {
-                    stateMachine.onCasting(title, rendererName)
-                    startPlaybackPolling(rendererUdn)
-                }
-            },
-            onFailure = { message ->
-                repoScope.launch {
-                    stateMachine.onError(message)
-                    stopPlaybackPolling(resetInfo = false)
+                    val location = cachedLocation ?: resolveLocationForFallback(rendererUdn)
+                    if (location != null) {
+                        Log.w(TAG, "jUPnP castMedia failed ($jUpnpMsg), trying DirectDlnaCaster")
+                        directCaster.cast(
+                            udn       = rendererUdn,
+                            location  = location,
+                            mediaUrl  = mediaUrl,
+                            title     = title,
+                            mimeType  = mimeType,
+                            onSuccess = onSuccess,
+                            onFailure = onFinalFail
+                        )
+                    } else {
+                        onFinalFail(jUpnpMsg)
+                    }
                 }
             }
         )
     }
 
+    /**
+     * Registers local media in NanoHTTPD and returns a LAN-reachable HTTP URL.
+     * Used by Google Cast flow, which needs an HTTP endpoint instead of file:// URI.
+     */
+    fun buildLocalMediaUrl(uri: Uri, mimeType: String, title: String): String? {
+        val server = ensureMediaServer() ?: return null
+        val host = getLocalIp() ?: return null
+        val mediaPath = server.setActiveMedia(uri, mimeType, title)
+        return "http://$host:8080/$mediaPath"
+    }
+
     /** Sends Stop to the active renderer and clears local state. */
     fun stopCast() {
-        activeRendererUdn?.let { dlnaManager.stop(it) }
+        val udn = activeRendererUdn
+        if (udn != null) {
+            val location = rendererLocationCache[udn]
+            if (location != null) {
+                repoScope.launch { directCaster.stop(udn, location) }
+            }
+            dlnaManager.stop(udn)  // also try jUPnP (no-op if not ready)
+        }
         mediaServer?.clearActiveMedia()
         activeRendererUdn = null
         consecutiveTelemetryFailures = 0
@@ -448,13 +506,21 @@ class CastRepository(private val context: Context) {
     }
 
     fun playCast() {
-        val rendererUdn = activeRendererUdn ?: return
-        dlnaManager.play(rendererUdn)
+        val udn = activeRendererUdn ?: return
+        val location = rendererLocationCache[udn]
+        if (location != null) {
+            repoScope.launch { directCaster.play(udn, location) }
+        }
+        dlnaManager.play(udn)  // also try jUPnP
     }
 
     fun pauseCast() {
-        val rendererUdn = activeRendererUdn ?: return
-        dlnaManager.pause(rendererUdn)
+        val udn = activeRendererUdn ?: return
+        val location = rendererLocationCache[udn]
+        if (location != null) {
+            repoScope.launch { directCaster.pause(udn, location) }
+        }
+        dlnaManager.pause(udn)  // also try jUPnP
     }
 
     fun seekBy(deltaMs: Long) {
@@ -495,7 +561,7 @@ class CastRepository(private val context: Context) {
         dlnaManager.setMute(rendererUdn, !muted)
     }
 
-    private fun armDiscoveryTimeout(timeoutMs: Long = 10_000L) {
+    private fun armDiscoveryTimeout(timeoutMs: Long = 30_000L) {
         discoveryTimeoutJob?.cancel()
         discoveryTimeoutJob = repoScope.launch {
             delay(timeoutMs)
@@ -618,5 +684,40 @@ class CastRepository(private val context: Context) {
             }
         }
         return null
+    }
+
+    private fun ensureMediaServer(): NanoHttpMediaServer? {
+        mediaServer?.let { return it }
+
+        val server = NanoHttpMediaServer(context, 8080)
+        return if (runCatching { server.start(5_000, false) }.isSuccess) {
+            mediaServer = server
+            server
+        } else {
+            null
+        }
+    }
+
+    private suspend fun resolveLocationForFallback(rendererUdn: String): String? {
+        rendererLocationCache[rendererUdn]?.let { return it }
+
+        val discovered = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            ssdpProbe.discover(timeoutMs = 2_000, hintIp = hintDeviceIp)
+        }
+
+        val match = discovered.firstOrNull {
+            sameRendererUdn(it.udn, rendererUdn)
+        } ?: return null
+
+        rendererLocationCache[rendererUdn] = match.location
+        return match.location
+    }
+
+    private fun sameRendererUdn(a: String, b: String): Boolean {
+        return canonicalUdn(a) == canonicalUdn(b)
+    }
+
+    private fun canonicalUdn(udn: String): String {
+        return udn.trim().removePrefix("uuid:").lowercase(Locale.US)
     }
 }

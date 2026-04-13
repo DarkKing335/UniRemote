@@ -56,6 +56,10 @@ class DlnaCastEngine(
         castRepository.refresh()
     }
 
+    fun setHintIp(ip: String?) {
+        castRepository.setHintDeviceIp(ip)
+    }
+
     override fun stopDiscovery() {
         castRepository.unbind()
     }

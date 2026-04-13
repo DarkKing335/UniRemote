@@ -24,6 +24,7 @@
 -keep class com.uniremote.dlna.dlna.** { *; }
 -keep class org.jupnp.** { *; }
 -keep class fi.iki.elonen.** { *; }
+-keep class com.example.uniremote.cast.GoogleCastOptionsProvider { *; }
 
 -dontwarn org.jupnp.**
 -dontwarn fi.iki.elonen.**

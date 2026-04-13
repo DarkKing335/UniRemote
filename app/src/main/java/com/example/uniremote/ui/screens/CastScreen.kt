@@ -8,15 +8,10 @@ import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,30 +32,24 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
-import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.SyncAlt
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoFile
-import androidx.compose.material.icons.filled.VolumeDown
-import androidx.compose.material.icons.filled.VolumeOff
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -75,32 +64,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.uniremote.R
 import com.example.uniremote.cast.CastPlaybackInfo
 import com.example.uniremote.cast.CastState
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
-import com.example.uniremote.ui.theme.GlassBtnBorder
-import com.example.uniremote.ui.theme.PremiumBgEnd
-import com.example.uniremote.ui.theme.PremiumBgStart
-import com.example.uniremote.ui.theme.primary_fixed_dim
-import com.example.uniremote.ui.theme.surface_bright
-import com.example.uniremote.ui.theme.surface_container_high
-import com.example.uniremote.ui.theme.surface_container_low
-import com.example.uniremote.ui.theme.surface_container_lowest
 import com.example.uniremote.viewmodel.RemoteViewModel
 import com.uniremote.dlna.dlna.DlnaRenderer
 import kotlin.math.roundToInt
@@ -123,1233 +100,701 @@ private fun queryDisplayName(context: Context, uri: Uri): String? {
     }
 }
 
-private fun formatCastTime(ms: Long): String {
-    val totalSeconds = (ms.coerceAtLeast(0L) / 1000L).toInt()
-    val minutes = totalSeconds / 60
-    val seconds = totalSeconds % 60
-    return String.format("%02d:%02d", minutes, seconds)
+private fun formatMs(ms: Long): String {
+    val total = (ms.coerceAtLeast(0L) / 1000L).toInt()
+    return "%02d:%02d".format(total / 60, total % 60)
 }
 
-// ─── Screen ───────────────────────────────────────────────────────────────────
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 
 @Composable
 fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
-    val castRenderers  by vm.castRenderers.collectAsStateWithLifecycle()
-    val castState      by vm.castState.collectAsStateWithLifecycle()
+    val castRenderers    by vm.castRenderers.collectAsStateWithLifecycle()
+    val castState        by vm.castState.collectAsStateWithLifecycle()
     val castPlaybackInfo by vm.castPlaybackInfo.collectAsStateWithLifecycle()
-    val isMirroring    by vm.isMirroring.collectAsStateWithLifecycle()
-    val mirrorStreamUrl by vm.mirrorStreamUrl.collectAsStateWithLifecycle()
-    val mirrorAuthHint by vm.mirrorAuthHint.collectAsStateWithLifecycle()
-    val mirrorTlsFingerprint by vm.mirrorTlsFingerprint.collectAsStateWithLifecycle()
+    val isMirroring      by vm.isMirroring.collectAsStateWithLifecycle()
+    val mirrorStreamUrl  by vm.mirrorStreamUrl.collectAsStateWithLifecycle()
 
-    var selectedMediaUrl     by remember { mutableStateOf("") }
-    var selectedUri          by remember { mutableStateOf<Uri?>(null) }
-    var selectedMime         by remember { mutableStateOf("") }
-    var selectedName         by remember { mutableStateOf("") }
-    var selectedRendererUdn  by remember { mutableStateOf<String?>(null) }
-    var selectedRendererName by remember { mutableStateOf("") }
+    var selectedUdn  by remember { mutableStateOf<String?>(null) }
+    var selectedName by remember { mutableStateOf("") }
 
-    val context  = LocalContext.current
-    val haptic   = LocalHapticFeedback.current
-    val clipboard = remember { context.getSystemService(ClipboardManager::class.java) }
-
-    // ── File picker (SAF, no storage permission) ────────────────────────────
-    val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
+    // Auto-select first renderer when list arrives
+    LaunchedEffect(castRenderers) {
+        if (selectedUdn == null && castRenderers.isNotEmpty()) {
+            selectedUdn  = castRenderers.first().udn
+            selectedName = castRenderers.first().name
         }
-        selectedUri = uri
-        selectedMime = context.contentResolver.getType(uri) ?: "video/*"
-        selectedName = queryDisplayName(context, uri)
-            ?: uri.lastPathSegment
-            ?: "media_${System.currentTimeMillis()}"
     }
 
-    // ── MediaProjection launcher ─────────────────────────────────────────────
+    val context = LocalContext.current
+    val clipboard = remember { context.getSystemService(ClipboardManager::class.java) }
+
+    val isDiscovering  = castState is CastState.Discovering
+    val isCasting      = castState is CastState.Casting
+    val isBusy         = isCasting || castState is CastState.SendingUri || castState is CastState.StartingPlayback
+    val castError      = (castState as? CastState.Error)?.message
+    val hasRenderer    = selectedUdn != null
+
+    // ── File picker – image ────────────────────────────────────────────────────
+    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        val udn = selectedUdn ?: run {
+            Toast.makeText(context, "Vui lòng chọn thiết bị Cast trước", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+        val mime  = context.contentResolver.getType(uri) ?: "image/*"
+        val title = queryDisplayName(context, uri) ?: "image"
+        vm.castMedia(uri = uri, mimeType = mime, title = title, rendererUdn = udn, rendererName = selectedName)
+    }
+
+    // ── File picker – video ────────────────────────────────────────────────────
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        runCatching { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        val udn = selectedUdn ?: run {
+            Toast.makeText(context, "Vui lòng chọn thiết bị Cast trước", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+        val mime  = context.contentResolver.getType(uri) ?: "video/*"
+        val title = queryDisplayName(context, uri) ?: "video"
+        vm.castMedia(uri = uri, mimeType = mime, title = title, rendererUdn = udn, rendererName = selectedName)
+    }
+
+    // ── MediaProjection launcher ───────────────────────────────────────────────
     val projectionManager = remember {
         context.getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
     }
-    val mirrorLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
+    val mirrorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.let {
+                // Pass renderer so mirroring auto-pushes stream URL via selected cast protocol
                 vm.startMirroring(
-                    resultCode = result.resultCode,
-                    data = it,
-                    rendererUdn = selectedRendererUdn,
-                    rendererName = selectedRendererName
+                    resultCode   = result.resultCode,
+                    data         = it,
+                    rendererUdn  = selectedUdn,
+                    rendererName = selectedName.ifBlank { null }
                 )
             }
         }
     }
 
-    // ── Notification permission (Android 13+) ────────────────────────────────
+    // ── POST_NOTIFICATIONS permission (Android 13+, for mirroring foreground service) ──
     val notifPermLauncher = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             handleNotificationPermissionResult(
-                granted = granted,
-                onGranted = {
-                    mirrorLauncher.launch(projectionManager.createScreenCaptureIntent())
-                },
-                onDenied = {
+                granted   = granted,
+                onGranted = { mirrorLauncher.launch(projectionManager.createScreenCaptureIntent()) },
+                onDenied  = {
                     vm.onMirroringPermissionDenied()
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.cast_notification_permission_denied),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    Toast.makeText(context, "Cần quyền thông báo để phản chiếu màn hình", Toast.LENGTH_SHORT).show()
                 }
             )
         }
     } else null
 
-    // ── Auto-bind DLNA service while Cast screen is visible ──────────────────
+    // ── NEARBY_WIFI_DEVICES permission is NOT needed for LAN SSDP discovery.
+    // ── doScan: just rebind (if needed) and trigger SSDP discovery sweep.
+    fun doScan() {
+        vm.bindCastService()     // no-op if already bound; ensures service is up
+        vm.refreshCastDevices()  // triggers SSDP M-SEARCH probe
+    }
+
+    fun doStartMirror() {
+        if (selectedUdn?.startsWith("gcast:") == true) {
+            if (castState is CastState.Error) {
+                vm.stopCast()
+            }
+
+            val intents = listOf(
+                Intent("android.settings.CAST_SETTINGS"),
+                Intent(Settings.ACTION_SETTINGS),
+                Intent("com.android.settings.WIFI_DISPLAY_SETTINGS")
+            )
+
+            val opened = intents.firstOrNull { intent ->
+                runCatching {
+                    context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    true
+                }.getOrDefault(false)
+            } != null
+
+            if (opened) {
+                Toast.makeText(
+                    context,
+                    "Đã mở Cast màn hình hệ thống cho Google Cast.",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(
+                    context,
+                    "Thiết bị Google Cast không hỗ trợ luồng .h264 trực tiếp từ app.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notifPermLauncher?.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            mirrorLauncher.launch(projectionManager.createScreenCaptureIntent())
+        }
+    }
+
+    // Bind cast services + auto-scan when Cast screen opens
     DisposableEffect(Unit) {
         vm.bindCastService()
+        vm.refreshCastDevices()
         onDispose { vm.unbindCastService() }
     }
 
     Scaffold(
-        topBar = {
-            TopBar(title = stringResource(R.string.cast_screen_title), onPowerClick = { vm.power() })
-        },
-        bottomBar = {
-            BottomNavBar(currentTab = NavigationTab.CAST, onTabSelected = onNavigate)
-        },
-        containerColor = Color.Transparent
-    ) { paddingValues ->
-        Box(
+        topBar    = { TopBar(title = "CAST", onPowerClick = { vm.power() }) },
+        bottomBar = { BottomNavBar(currentTab = NavigationTab.CAST, onTabSelected = onNavigate) },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { padding ->
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Brush.verticalGradient(listOf(PremiumBgStart, PremiumBgEnd)))
-                .padding(paddingValues)
+                .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(28.dp)
-            ) {
-                // ── Media Casting ──────────────────────────────────────────
-                MediaCastingSection(
-                    castState           = castState,
-                    playbackInfo        = castPlaybackInfo,
-                    renderers           = castRenderers,
-                    selectedRendererUdn = selectedRendererUdn,
-                    selectedMediaUrl    = selectedMediaUrl,
-                    selectedFileName    = selectedName,
-                    hasSelectedFile     = selectedUri != null,
-                    onScanClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.refreshCastDevices()
-                    },
-                    onRendererSelect = { udn, name ->
-                        selectedRendererUdn  = udn
-                        selectedRendererName = name
-                    },
-                    onMediaUrlChange = {
-                        selectedMediaUrl = it
-                    },
-                    onPickFile = {
-                        filePicker.launch(arrayOf("video/*", "image/*"))
-                    },
-                    onCast = {
-                        val udn = selectedRendererUdn ?: return@MediaCastingSection
-                        val selectedLocalUri = selectedUri
-                        val mediaUrl = selectedMediaUrl.trim()
-                        val hasValidHttpUrl = mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")
 
-                        if (selectedLocalUri != null && !hasValidHttpUrl) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            vm.castMedia(
-                                uri = selectedLocalUri,
-                                mimeType = selectedMime,
-                                title = selectedName.ifBlank { "Media" },
-                                rendererUdn = udn,
-                                rendererName = selectedRendererName
-                            )
-                            return@MediaCastingSection
-                        }
+            // ── Tip ──────────────────────────────────────────────────────────
+            Text(
+                text  = "Tip: Chromecast dùng Cast màn hình hệ thống; DLNA dùng mirroring trực tiếp trong app.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
 
-                        if (!hasValidHttpUrl) {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.cast_enter_valid_http_url),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            return@MediaCastingSection
-                        }
+            // ── Error banner ──────────────────────────────────────────────────
+            if (castError != null) {
+                ErrorBanner(message = castError, modifier = Modifier.padding(bottom = 12.dp))
+            }
 
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.castMedia(
-                            uri = Uri.parse(mediaUrl),
-                            mimeType = "",
-                            title = mediaUrl.substringAfterLast('/').ifBlank { "Media" },
-                            rendererUdn = udn,
-                            rendererName = selectedRendererName
-                        )
-                    },
-                    onStop = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.stopCast()
-                    },
-                    onPlay = { vm.playCast() },
-                    onPause = { vm.pauseCast() },
-                    onSeekBack = { vm.seekCastBy(-10_000L) },
-                    onSeekForward = { vm.seekCastBy(10_000L) },
-                    onSeekTo = { vm.seekCastTo(it) },
-                    onVolumeDown = { vm.changeCastVolumeBy(-5) },
-                    onVolumeUp = { vm.changeCastVolumeBy(5) },
-                    onSetVolume = { vm.setCastVolume(it) },
-                    onMuteToggle = { vm.toggleCastMute() }
-                )
-
-                // ── Screen Mirroring ───────────────────────────────────────
-                MirroringSection(
-                    isMirroring         = isMirroring,
-                    streamUrl           = mirrorStreamUrl,
-                    authHint            = mirrorAuthHint,
-                    tlsFingerprint      = mirrorTlsFingerprint,
-                    onStartMirroring = {
-                        if (selectedRendererUdn.isNullOrBlank()) {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.cast_select_tv_before_mirroring),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            return@MirroringSection
-                        }
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            notifPermLauncher?.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            mirrorLauncher.launch(projectionManager.createScreenCaptureIntent())
-                        }
-                    },
-                    onStopMirroring = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.stopMirroring()
-                    },
-                    onCopyUrl = { url ->
-                        clipboard?.setPrimaryClip(ClipData.newPlainText("Stream URL", url))
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        Toast.makeText(context, context.getString(R.string.cast_endpoint_copied), Toast.LENGTH_SHORT).show()
-                    },
-                    onCopySecureLink = {
-                        val authHeader = vm.getMirrorAuthorizationHeaderForManualShare()
-                        if (authHeader.isNullOrBlank()) {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.cast_secure_link_unavailable),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            return@MirroringSection
-                        }
-                        clipboard?.setPrimaryClip(ClipData.newPlainText("Authorization Header", authHeader))
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        Toast.makeText(
-                            context,
-                            context.getString(R.string.cast_auth_header_copied_warning),
-                            Toast.LENGTH_LONG
-                        ).show()
+            // ── Connect Cast Session ──────────────────────────────────────────
+            OutlinedButton(
+                onClick = {
+                    if (isMirroring) vm.stopMirroring()
+                    else if (!hasRenderer) {
+                        Toast.makeText(context, "Chọn thiết bị Cast trước", Toast.LENGTH_SHORT).show()
+                    } else {
+                        doStartMirror()
                     }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Filled.Cast, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isMirroring) "Dừng Cast Session" else "Connect Cast Session",
+                    fontWeight = FontWeight.Medium
                 )
+            }
 
-                // Wi-Fi hint footer
+            // ── NEARBY DEVICES header ─────────────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "NEARBY DEVICES",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.sp,
+                    fontWeight = FontWeight.Bold
+                )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = !isDiscovering) { doScan() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
-                    Icon(
-                        Icons.Filled.Info, null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    if (isDiscovering) {
+                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = "Scan",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        stringResource(R.string.cast_wifi_hint),
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = if (isDiscovering) "SCANNING..." else "SCAN",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
             }
+
+            HorizontalDivider()
+
+            // ── Device list ───────────────────────────────────────────────────
+            if (castRenderers.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isDiscovering)
+                            "Đang tìm kiếm thiết bị Cast (DLNA/Chromecast)..."
+                        else
+                            "Không tìm thấy thiết bị Cast (DLNA/Chromecast).\nĐảm bảo TV và điện thoại cùng Wi-Fi,\nrồi bấm SCAN.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+                }
+            } else {
+                Column {
+                    castRenderers.forEach { renderer ->
+                        val isSelected = renderer.udn == selectedUdn
+                        val isActivelyCasting = isCasting && isSelected
+                        RendererRow(
+                            renderer  = renderer,
+                            isSelected = isSelected,
+                            isCasting  = isActivelyCasting,
+                            enabled    = !isBusy,
+                            onClick    = {
+                                selectedUdn  = renderer.udn
+                                selectedName = renderer.name
+                            }
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ── Active Cast Playback Controls ─────────────────────────────────
+            if (isCasting) {
+                val state = castState as? CastState.Casting
+                PlaybackCard(
+                    title        = state?.title ?: "",
+                    rendererName = state?.rendererName ?: "",
+                    info         = castPlaybackInfo,
+                    onStop       = { vm.stopCast() },
+                    onPlay       = { vm.playCast() },
+                    onPause      = { vm.pauseCast() },
+                    onSeekBack   = { vm.seekCastBy(-10_000L) },
+                    onSeekForward = { vm.seekCastBy(10_000L) },
+                    onSeekTo     = { vm.seekCastTo(it) },
+                    modifier     = Modifier.padding(bottom = 16.dp)
+                )
+            }
+
+            // ── Mirror Stream URL (when mirroring active) ─────────────────────
+            if (isMirroring && mirrorStreamUrl != null) {
+                MirrorUrlCard(
+                    url      = mirrorStreamUrl!!,
+                    onCopy   = {
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("Stream URL", mirrorStreamUrl))
+                        Toast.makeText(context, "Đã copy URL stream", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+            }
+
+            // ── QUICK ACTIONS ─────────────────────────────────────────────────
+            Text(
+                text = "QUICK ACTIONS",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                letterSpacing = 1.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(bottom = 12.dp)
+            )
+
+            // Screen Mirroring – full width
+            QuickActionTile(
+                icon    = Icons.Filled.Smartphone,
+                label   = if (isMirroring) "Dừng Mirroring" else "Screen Mirroring",
+                subLabel = when {
+                    isMirroring -> "Đang phản chiếu màn hình"
+                    selectedUdn?.startsWith("gcast:") == true -> "Google Cast: dùng Cast màn hình hệ thống"
+                    hasRenderer -> "Phản chiếu lên: $selectedName"
+                    else        -> "Chọn thiết bị Cast trước"
+                },
+                active  = isMirroring,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                onClick = {
+                    if (isMirroring) vm.stopMirroring()
+                    else if (!hasRenderer) Toast.makeText(context, "Chọn thiết bị Cast trước", Toast.LENGTH_SHORT).show()
+                    else doStartMirror()
+                }
+            )
+
+            // Cast Image & Cast Video
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                QuickActionTile(
+                    icon     = Icons.Filled.Image,
+                    label    = "Cast Image",
+                    subLabel = if (hasRenderer) selectedName else "Chọn TV trước",
+                    active   = false,
+                    modifier = Modifier.weight(1f),
+                    onClick  = {
+                        if (!hasRenderer) Toast.makeText(context, "Chọn thiết bị Cast trước", Toast.LENGTH_SHORT).show()
+                        else imagePicker.launch(arrayOf("image/*"))
+                    }
+                )
+                QuickActionTile(
+                    icon     = Icons.Filled.VideoFile,
+                    label    = "Cast Video",
+                    subLabel = if (hasRenderer) selectedName else "Chọn TV trước",
+                    active   = isCasting,
+                    modifier = Modifier.weight(1f),
+                    onClick  = {
+                        if (!hasRenderer) Toast.makeText(context, "Chọn thiết bị Cast trước", Toast.LENGTH_SHORT).show()
+                        else videoPicker.launch(arrayOf("video/*"))
+                    }
+                )
+            }
+
+            // ── Wi-Fi hint ────────────────────────────────────────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(12.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text  = "TV và điện thoại phải cùng mạng Wi-Fi",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
 
-// ─── Media Casting Section ────────────────────────────────────────────────────
+// ─── Renderer Row ─────────────────────────────────────────────────────────────
 
 @Composable
-private fun MediaCastingSection(
-    castState: CastState,
-    playbackInfo: CastPlaybackInfo,
-    renderers: List<DlnaRenderer>,
-    selectedRendererUdn: String?,
-    selectedMediaUrl: String,
-    selectedFileName: String,
-    hasSelectedFile: Boolean,
-    onScanClick: () -> Unit,
-    onRendererSelect: (String, String) -> Unit,
-    onMediaUrlChange: (String) -> Unit,
-    onPickFile: () -> Unit,
-    onCast: () -> Unit,
-    onStop: () -> Unit,
-    onPlay: () -> Unit,
-    onPause: () -> Unit,
-    onSeekBack: () -> Unit,
-    onSeekForward: () -> Unit,
-    onSeekTo: (Long) -> Unit,
-    onVolumeDown: () -> Unit,
-    onVolumeUp: () -> Unit,
-    onSetVolume: (Int) -> Unit,
-    onMuteToggle: () -> Unit
+private fun RendererRow(
+    renderer: DlnaRenderer,
+    isSelected: Boolean,
+    isCasting: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
 ) {
-    val isCasting     = castState is CastState.Casting
-    val isSendingUri  = castState is CastState.SendingUri
-    val isStarting    = castState is CastState.StartingPlayback
-    val isDiscovering = castState is CastState.Discovering
-    val isBusy        = isCasting || isSendingUri || isStarting
-    val errorMsg      = (castState as? CastState.Error)?.message
-
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
-        // Section header
-        CastSectionHeader(
-            icon  = Icons.Filled.Cast,
-            title = stringResource(R.string.cast_media_title),
-            badgeText = when {
-                isCasting     -> stringResource(R.string.cast_streaming)
-                isSendingUri  -> stringResource(R.string.cast_preparing)
-                isStarting    -> stringResource(R.string.cast_starting)
-                isDiscovering -> stringResource(R.string.cast_scanning)
-                renderers.isNotEmpty() -> stringResource(R.string.cast_ready)
-                else          -> stringResource(R.string.cast_idle)
-            },
-            badgeActive = isCasting
-        )
-        Text(
-            stringResource(R.string.cast_media_quick_desc),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        // ── Renderer discovery card ──────────────────────────────────────
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        stringResource(R.string.cast_available_tvs),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        letterSpacing = 1.5.sp
-                    )
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable(enabled = !isBusy) { onScanClick() }
-                            .background(
-                                if (!isBusy) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                else Color.Transparent
-                            )
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (isDiscovering) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(12.dp),
-                                strokeWidth = 1.5.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else {
-                            Icon(
-                                Icons.Filled.Refresh, null,
-                                tint = if (!isBusy) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            if (isDiscovering) stringResource(R.string.cast_scanning)
-                            else stringResource(R.string.cast_scan),
-                            style = MaterialTheme.typography.labelSmall,
-                                color = if (!isBusy) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                            letterSpacing = 1.sp
-                        )
-                    }
-                }
-
-                if (renderers.isEmpty()) {
-                    // Empty state
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
-                            .padding(vertical = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            if (isDiscovering) stringResource(R.string.cast_searching_renderers)
-                            else stringResource(R.string.cast_no_renderers),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign  = androidx.compose.ui.text.style.TextAlign.Center,
-                            lineHeight = 20.sp
-                        )
-                    }
-                } else {
-                    // Renderer list
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        renderers.forEach { renderer ->
-                            RendererItem(
-                                renderer   = renderer,
-                                isSelected = renderer.udn == selectedRendererUdn,
-                                enabled    = !isBusy,
-                                onClick    = { onRendererSelect(renderer.udn, renderer.name) }
-                            )
-                        }
-                    }
-                }
-
-                // Error banner
-                if (errorMsg != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
-                            .padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Filled.Info, null,
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            errorMsg,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
-            }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                else Color.Transparent
+            )
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else MaterialTheme.colorScheme.surfaceVariant
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Tv,
+                contentDescription = null,
+                tint = if (isSelected) MaterialTheme.colorScheme.primary
+                       else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
         }
-
-        // ── URL input card (URL-only DLNA mode) ──────────────────────────
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = renderer.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!renderer.model.isNullOrBlank()) {
                 Text(
-                    stringResource(R.string.cast_media_url),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    letterSpacing = 1.5.sp
-                )
-                OutlinedTextField(
-                    value = selectedMediaUrl,
-                    onValueChange = onMediaUrlChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isBusy,
-                    placeholder = {
-                        Text(stringResource(R.string.cast_media_url_placeholder))
-                    },
-                    singleLine = true,
-                    leadingIcon = {
-                        Icon(
-                            Icons.Filled.SyncAlt,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                )
-                Text(
-                    stringResource(R.string.cast_media_url_hint),
+                    text = renderer.model,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
-
-        // ── Local file card ─────────────────────────────────────────────
-        GlassCard {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    stringResource(R.string.cast_media_file),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    letterSpacing = 1.5.sp
-                )
-
-                if (hasSelectedFile) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-                            .border(
-                                1.dp,
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
-                                RoundedCornerShape(10.dp)
-                            )
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Filled.VideoFile,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            selectedFileName.ifBlank { stringResource(R.string.cast_pick_file) },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
-                        .clickable(enabled = !isBusy) { onPickFile() }
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Filled.FolderOpen,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        stringResource(R.string.cast_pick_file),
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+        val badge = when {
+            isCasting  -> "CASTING"   to MaterialTheme.colorScheme.tertiary
+            isSelected -> "CONNECTED" to MaterialTheme.colorScheme.primary
+            else       -> null
         }
-
-        // ── Active cast bar / Cast action button ─────────────────────────
-        if (castState is CastState.Casting) {
-            ActiveCastBar(
-                title        = castState.title,
-                rendererName = castState.rendererName,
-                playbackInfo = playbackInfo,
-                onStop       = onStop,
-                onPlay       = onPlay,
-                onPause      = onPause,
-                onSeekBack   = onSeekBack,
-                onSeekForward = onSeekForward,
-                onSeekTo     = onSeekTo,
-                onVolumeDown = onVolumeDown,
-                onVolumeUp   = onVolumeUp,
-                onSetVolume  = onSetVolume,
-                onMuteToggle = onMuteToggle
-            )
-        } else {
-            val hasHttpUrl = selectedMediaUrl.startsWith("http://") || selectedMediaUrl.startsWith("https://")
-            val hasSource = hasHttpUrl || hasSelectedFile
-            val canCast  = hasSource && selectedRendererUdn != null && !isDiscovering && !isBusy
-            val buttonLabel = when {
-                isSendingUri            -> stringResource(R.string.cast_preparing)
-                isStarting              -> stringResource(R.string.cast_starting)
-                selectedRendererUdn == null -> stringResource(R.string.cast_select_tv_hint)
-                !hasSource              -> stringResource(R.string.cast_pick_file_hint)
-                else -> stringResource(R.string.cast_cast_to)
-            }
-            GradientActionButton(
-                text    = buttonLabel,
-                icon    = Icons.Filled.Cast,
-                enabled = canCast,
-                onClick = onCast
-            )
-        }
-    }
-}
-
-// ─── Renderer Item ────────────────────────────────────────────────────────────
-
-@Composable
-private fun RendererItem(
-    renderer: DlnaRenderer,
-    isSelected: Boolean,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                else surface_container_lowest
-            )
-            .border(
-                1.dp,
-                if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else GlassBtnBorder,
-                RoundedCornerShape(10.dp)
-            )
-            .clickable(enabled = enabled) { onClick() }
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(8.dp)
-                .clip(CircleShape)
-                .background(
-                    if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                )
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        if (badge != null) {
             Text(
-                renderer.name,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = if (isSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurface
-            )
-            if (!renderer.model.isNullOrBlank()) {
-                Text(
-                    renderer.model,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        if (isSelected) {
-            Icon(
-                Icons.Filled.CheckCircle, null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
+                text = badge.first,
+                style = MaterialTheme.typography.labelSmall,
+                color = badge.second,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(badge.second.copy(alpha = 0.12f))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             )
         }
     }
 }
 
-// ─── Active Cast Bar ──────────────────────────────────────────────────────────
+// ─── Playback Card ────────────────────────────────────────────────────────────
 
 @Composable
-private fun ActiveCastBar(
+private fun PlaybackCard(
     title: String,
     rendererName: String,
-    playbackInfo: CastPlaybackInfo,
+    info: CastPlaybackInfo,
     onStop: () -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     onSeekBack: () -> Unit,
     onSeekForward: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onVolumeDown: () -> Unit,
-    onVolumeUp: () -> Unit,
-    onSetVolume: (Int) -> Unit,
-    onMuteToggle: () -> Unit
+    modifier: Modifier = Modifier
 ) {
-    val durationMs = playbackInfo.durationMs.coerceAtLeast(0L)
-    var isSeeking by remember(rendererName, title) { mutableStateOf(false) }
-    var seekSlider by remember(rendererName, title) { mutableFloatStateOf(0f) }
-    var isVolumeDragging by remember(rendererName, title) { mutableStateOf(false) }
-    var volumeSlider by remember(rendererName, title) {
-        mutableFloatStateOf((playbackInfo.volume ?: 20).toFloat())
+    val durationMs = info.durationMs.coerceAtLeast(0L)
+    var isSeeking  by remember { mutableStateOf(false) }
+    var seekValue  by remember { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(info.positionMs, isSeeking) {
+        if (!isSeeking) seekValue = info.positionMs.coerceIn(0L, durationMs.coerceAtLeast(0L)).toFloat()
     }
 
-    LaunchedEffect(playbackInfo.positionMs, durationMs, isSeeking) {
-        if (!isSeeking) {
-            seekSlider = playbackInfo.positionMs
-                .coerceIn(0L, durationMs.coerceAtLeast(0L))
-                .toFloat()
-        }
-    }
-
-    LaunchedEffect(playbackInfo.volume, isVolumeDragging) {
-        if (!isVolumeDragging && playbackInfo.volume != null) {
-            volumeSlider = playbackInfo.volume.toFloat()
-        }
-    }
-
-    val alpha by rememberInfiniteTransition(label = "cast_pulse")
-        .animateFloat(
-            initialValue = 0.6f, targetValue = 1f,
-            animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
-            label = "cast_alpha"
-        )
-    Row(
-        modifier = Modifier
+    Column(
+        modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f))
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
             .padding(14.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(10.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        // Title + Stop button
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "▶ Casting to $rendererName",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            IconButton(
+                onClick = onStop,
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Icon(Icons.Filled.Stop, "Stop", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+            }
+        }
+
+        // Progress
+        if (durationMs > 0L) {
             Text(
-                "Casting to $rendererName",
-                style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                "${formatCastTime(playbackInfo.positionMs)} / ${formatCastTime(playbackInfo.durationMs)}",
+                text = "${formatMs(info.positionMs)} / ${formatMs(durationMs)}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Slider(
-                value = seekSlider,
-                onValueChange = {
-                    isSeeking = true
-                    seekSlider = it
-                },
-                onValueChangeFinished = {
-                    isSeeking = false
-                    onSeekTo(seekSlider.toLong())
-                },
-                valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
-                enabled = durationMs > 0L,
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CastMiniButton(icon = Icons.Filled.FastRewind, onClick = onSeekBack)
-                CastMiniButton(icon = Icons.Filled.PlayArrow, onClick = onPlay)
-                CastMiniButton(icon = Icons.Filled.Pause, onClick = onPause)
-                CastMiniButton(icon = Icons.Filled.FastForward, onClick = onSeekForward)
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                CastMiniButton(icon = Icons.Filled.VolumeDown, onClick = onVolumeDown)
-                CastMiniButton(icon = Icons.Filled.VolumeUp, onClick = onVolumeUp)
-                CastMiniButton(icon = Icons.Filled.VolumeOff, onClick = onMuteToggle)
-                Text(
-                    "${volumeSlider.roundToInt()}%",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Slider(
-                value = volumeSlider,
-                onValueChange = {
-                    isVolumeDragging = true
-                    volumeSlider = it
-                },
-                onValueChangeFinished = {
-                    isVolumeDragging = false
-                    onSetVolume(volumeSlider.roundToInt())
-                },
-                valueRange = 0f..100f,
+                value = seekValue,
+                onValueChange = { isSeeking = true; seekValue = it },
+                onValueChangeFinished = { isSeeking = false; onSeekTo(seekValue.toLong()) },
+                valueRange = 0f..durationMs.toFloat(),
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        Spacer(modifier = Modifier.width(12.dp))
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.15f))
-                .clickable { onStop() }
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-            contentAlignment = Alignment.Center
+
+        // Controls
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Filled.Stop, null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    "STOP",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    letterSpacing = 1.sp
-                )
-            }
+            PlaybackBtn(Icons.Filled.FastRewind, "−10s", onSeekBack)
+            PlaybackBtn(Icons.Filled.PlayArrow, "Play", onPlay)
+            PlaybackBtn(Icons.Filled.Pause, "Pause", onPause)
+            PlaybackBtn(Icons.Filled.FastForward, "+10s", onSeekForward)
         }
     }
 }
 
 @Composable
-private fun CastMiniButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
-) {
+private fun PlaybackBtn(icon: ImageVector, desc: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.75f))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(16.dp)
-        )
+        Icon(icon, desc, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface)
     }
 }
 
-// ─── Mirroring Section ────────────────────────────────────────────────────────
+// ─── Mirror URL Card ──────────────────────────────────────────────────────────
 
 @Composable
-private fun MirroringSection(
-    isMirroring: Boolean,
-    streamUrl: String?,
-    authHint: String?,
-    tlsFingerprint: String?,
-    onStartMirroring: () -> Unit,
-    onStopMirroring: () -> Unit,
-    onCopyUrl: (String) -> Unit,
-    onCopySecureLink: () -> Unit
-) {
-    val mirrorScale by if (isMirroring) {
-        rememberInfiniteTransition(label = "mirror_pulse")
-            .animateFloat(
-                initialValue  = 0.98f, targetValue = 1.02f,
-                animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
-                label = "mirror_scale"
-            )
-    } else {
-        remember { mutableStateOf(1f) }
-    }
-
-    val signalAlpha by if (isMirroring) {
-        rememberInfiniteTransition(label = "signal_alpha")
-            .animateFloat(
-                initialValue  = 0.35f, targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Reverse),
-                label = "signal_alpha"
-            )
-    } else {
-        remember { mutableStateOf(0.45f) }
-    }
-
-    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
-        // Header
-        CastSectionHeader(
-            icon      = Icons.Filled.Smartphone,
-            title     = stringResource(R.string.cast_mirroring_title),
-            badgeText = when {
-                isMirroring -> stringResource(R.string.cast_streaming)
-                else        -> stringResource(R.string.cast_ready)
-            },
-            badgeActive = isMirroring
-        )
-        Text(
-            stringResource(R.string.cast_mirroring_realtime_desc),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-
-        // ── Phone ↔ TV visualization ─────────────────────────────────────
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .scale(mirrorScale)
-                .clip(RoundedCornerShape(28.dp))
-                .background(
-                    if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.07f)
-                    else surface_container_low
-                )
-                .border(
-                    1.dp,
-                    if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                    else GlassBtnBorder,
-                    RoundedCornerShape(28.dp)
-                )
-                .padding(28.dp)
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                // Phone ↔ TV icons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp, 96.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                else surface_container_lowest
-                            )
-                            .border(2.dp,
-                                if (isMirroring) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outlineVariant,
-                                RoundedCornerShape(12.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Smartphone, null,
-                            tint = if (isMirroring) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.outlineVariant
-                        )
-                    }
-
-                    // Signal line
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(2.dp)
-                            .background(
-                                Brush.horizontalGradient(listOf(
-                                    MaterialTheme.colorScheme.outlineVariant,
-                                    if (isMirroring)
-                                        MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha)
-                                    else
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                                    MaterialTheme.colorScheme.outlineVariant
-                                ))
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.SyncAlt, null,
-                            tint = if (isMirroring)
-                                MaterialTheme.colorScheme.primary.copy(alpha = signalAlpha)
-                            else
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                            modifier = Modifier
-                                .background(
-                                    if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                    else surface_container_low
-                                )
-                                .padding(horizontal = 6.dp)
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(88.dp, 56.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(
-                                if (isMirroring) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                else surface_container_lowest
-                            )
-                            .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.Tv, null, tint = MaterialTheme.colorScheme.primary)
-                    }
-                }
-
-                // Action button
-                GradientActionButton(
-                    text = when {
-                        isMirroring -> stringResource(R.string.cast_stop_mirroring)
-                        else        -> stringResource(R.string.cast_start_mirroring)
-                    },
-                    icon = if (isMirroring) Icons.Filled.Stop else Icons.Filled.Smartphone,
-                    enabled = true,
-                    isDestructive = isMirroring,
-                    onClick = if (isMirroring) onStopMirroring else onStartMirroring
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        stringResource(R.string.cast_low_latency_title),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        stringResource(R.string.cast_low_latency_mode),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        letterSpacing = 1.sp
-                    )
-                }
-
-                // Stream URL card when mirroring is active
-                if (isMirroring && streamUrl != null) {
-                    StreamUrlCard(
-                        url = streamUrl,
-                        authHint = authHint,
-                        tlsFingerprint = tlsFingerprint,
-                        onCopyEndpoint = onCopyUrl,
-                        onCopySecureLink = onCopySecureLink
-                    )
-                }
-            }
-        }
-    }
-}
-
-// ─── Stream URL Card ──────────────────────────────────────────────────────────
-
-@Composable
-private fun StreamUrlCard(
+private fun MirrorUrlCard(
     url: String,
-    authHint: String?,
-    tlsFingerprint: String?,
-    onCopyEndpoint: (String) -> Unit,
-    onCopySecureLink: () -> Unit
+    onCopy: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(surface_container_lowest)
-            .border(1.dp, GlassBtnBorder, RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f))
+            .border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            stringResource(R.string.cast_mirror_stream_label),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            letterSpacing = 1.5.sp
+            text = "📡 Đang phản chiếu màn hình",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.secondary,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = "Nếu TV không tự mở, copy URL bên dưới và dán vào trình duyệt của TV:",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .background(MaterialTheme.colorScheme.surface)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                url,
+                text = url,
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                 ),
-                color = primary_fixed_dim,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(
-                onClick = { onCopyEndpoint(url) },
-                modifier = Modifier.size(24.dp)
-            ) {
+            IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
                 Icon(
-                    Icons.Filled.ContentCopy, null,
+                    Icons.Filled.ContentCopy, "Copy",
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(16.dp)
                 )
             }
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Filled.Key,
-                null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.cast_auth_token_masked, authHint ?: "••••"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
-            )
-            Text(
-                text = stringResource(R.string.cast_copy_auth_header),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { onCopySecureLink() }
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-            )
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.Filled.Fingerprint,
-                null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = stringResource(R.string.cast_tls_fingerprint_label, tlsFingerprint ?: "unknown"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+    }
+}
+
+// ─── Error Banner ─────────────────────────────────────────────────────────────
+
+@Composable
+private fun ErrorBanner(message: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.7f))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Filled.Info, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(8.dp))
         Text(
-            stringResource(R.string.cast_mirror_open_hint),
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Normal),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            lineHeight = 18.sp
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer
         )
     }
 }
 
-// ─── Shared Composables ───────────────────────────────────────────────────────
+// ─── Quick Action Tile ────────────────────────────────────────────────────────
 
 @Composable
-private fun CastSectionHeader(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    badgeText: String,
-    badgeActive: Boolean
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                title,
-                style = MaterialTheme.typography.headlineLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        // Status badge
-        Row(
-            modifier = Modifier
-                .clip(CircleShape)
-                .background(
-                    if (badgeActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                )
-                .padding(horizontal = 10.dp, vertical = 5.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                badgeText,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                color = MaterialTheme.colorScheme.primary,
-                letterSpacing = 1.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun GlassCard(content: @Composable () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(surface_container_low)
-            .border(1.dp, GlassBtnBorder, RoundedCornerShape(18.dp))
-            .padding(18.dp)
-    ) {
-        content()
-    }
-}
-
-@Composable
-private fun GradientActionButton(
-    text: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    enabled: Boolean,
-    isDestructive: Boolean = false,
+private fun QuickActionTile(
+    icon: ImageVector,
+    label: String,
+    subLabel: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(CircleShape)
-            .background(
-                if (!enabled) {
-                    Brush.linearGradient(listOf(surface_bright, surface_container_high))
-                } else if (isDestructive) {
-                    Brush.linearGradient(listOf(
-                        MaterialTheme.colorScheme.error,
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                    ))
-                } else {
-                    Brush.linearGradient(listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.primaryContainer
-                    ))
-                }
-            )
-            .clickable(enabled = enabled) { onClick() }
-            .padding(vertical = 18.dp),
-        contentAlignment = Alignment.Center
+    val bg   = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+    val fg   = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+    val fgSub = if (active) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(bg)
+            .clickable { onClick() }
+            .padding(vertical = 16.dp, horizontal = 12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                icon, null,
-                tint = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text,
-                style = MaterialTheme.typography.titleMedium,
-                color = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                letterSpacing = 1.5.sp
-            )
-        }
+        Icon(icon, label, tint = fg, modifier = Modifier.size(28.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = fg,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Text(
+            text = subLabel,
+            style = MaterialTheme.typography.labelSmall,
+            color = fgSub,
+            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
