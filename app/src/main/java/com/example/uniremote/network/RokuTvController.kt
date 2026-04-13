@@ -42,7 +42,8 @@ class RokuTvController(override val device: TvDevice) : TvController {
     override fun isConnected(): Boolean = true // Stateless HTTP
 
     override suspend fun sendKey(key: TvKey) {
-        val rokuKey = mapToRokuKey(key) ?: return
+        val rokuKey = mapToRokuKey(key)
+            ?: throw UnsupportedOperationException("Roku TV does not support key: $key")
         post("/keypress/$rokuKey")
     }
 
@@ -106,6 +107,12 @@ class RokuTvController(override val device: TvDevice) : TvController {
         TvKey.PREV    -> "Rev"
         TvKey.SETTINGS -> "Info" // Approx mapping
         TvKey.SEARCH  -> "Search"
+        TvKey.SOURCE  -> "InputTuner"
+        TvKey.HDMI_1  -> "InputHDMI1"
+        TvKey.HDMI_2  -> "InputHDMI2"
+        TvKey.HDMI_3  -> "InputHDMI3"
+        TvKey.HDMI_4  -> "InputHDMI4"
+        TvKey.AV      -> "InputAV1"
         else -> null
     }
 

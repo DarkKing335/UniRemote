@@ -8,9 +8,15 @@ import com.example.uniremote.data.TvDevice
  * This is a basic implementation placeholder.
  */
 class HisenseTvController(override val device: TvDevice) : TvController {
-    override suspend fun connect(): Boolean = true
+    companion object {
+        /** Stub controller: disabled until VIDAA protocol implementation is complete. */
+        fun supports(device: TvDevice): Boolean = false
+    }
+
+    override suspend fun connect(): Boolean = false
     override fun disconnect() {}
-    override fun isConnected(): Boolean = true
+    override fun isConnected(): Boolean = false
+    override suspend fun validateConnection(): Boolean = false
     override suspend fun sendKey(key: TvKey) {
         // Implement VIDAA protocol here
     }

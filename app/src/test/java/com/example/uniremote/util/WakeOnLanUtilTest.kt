@@ -2,6 +2,7 @@ package com.example.uniremote.util
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.lang.reflect.InvocationTargetException
 
 class WakeOnLanUtilTest {
 
@@ -41,9 +42,12 @@ class WakeOnLanUtilTest {
         assertDoesNotThrow { buildMagicPacketReflected("AA-BB-CC-DD-EE-FF") }
     }
 
-    @Test(expected = IllegalArgumentException::class)
+    @Test
     fun `parseMac rejects invalid MAC`() {
-        buildMagicPacketReflected("INVALID")
+        val error = assertThrows(InvocationTargetException::class.java) {
+            buildMagicPacketReflected("INVALID")
+        }
+        assertTrue(error.cause is IllegalArgumentException)
     }
 
     // Access private buildMagicPacket via reflection for testing

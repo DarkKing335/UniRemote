@@ -34,6 +34,14 @@ interface TvController {
     /** Returns true if the current connection is open. */
     fun isConnected(): Boolean
 
+    /**
+     * Optional post-connect functional validation.
+     *
+     * Called by [DeviceConnectionManager] after [connect] reports success to avoid
+     * false-connected states for partially implemented controllers.
+     */
+    suspend fun validateConnection(): Boolean = isConnected()
+
     /** Sends a single key press. */
     suspend fun sendKey(key: TvKey)
 
@@ -57,6 +65,12 @@ interface TvController {
      * Controllers that issue tokens should override this.
      */
     fun saveToken(token: String) {}
+
+    /** Optional reason to surface when connect/validate fails. */
+    fun getConnectionFailureReason(): String? = null
+
+    /** Reset transient connection failure reason before a new attempt. */
+    fun clearConnectionFailureReason() {}
 
     /** Adjusts volume by [delta] steps (+1 = up, -1 = down). */
     suspend fun setVolume(delta: Int) {

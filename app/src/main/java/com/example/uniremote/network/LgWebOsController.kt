@@ -65,6 +65,7 @@ class LgWebOsController(
             TvKey.GUIDE    to "GUIDE",
             TvKey.SETTINGS to "SETTINGS",
             TvKey.SOURCE   to "EXTERNAL_INPUT",
+            TvKey.SEARCH   to "SEARCH",
         )
     }
 
@@ -112,7 +113,7 @@ class LgWebOsController(
     }.toString()
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
-        if (!TransportSecurityPolicy.allowInsecureDeviceProtocol("LG WebOS SSAP over ws://")) {
+        if (!TransportSecurityPolicy.allowInsecureDeviceProtocol("LG WebOS SSAP over ws://", host = device.ip)) {
             return@withContext false
         }
         val url = "ws://${device.ip}:${device.port}"
@@ -234,7 +235,8 @@ class LgWebOsController(
             TvKey.CH_DOWN -> request("ssap://tv/channelDown")
             // ── All other keys go through IME key-event ──────────────────────────
             else -> {
-                val lgKey = KEY_MAP[key] ?: return
+                val lgKey = KEY_MAP[key]
+                    ?: throw UnsupportedOperationException("LG WebOS does not support key: $key")
                 request(
                     uri = "ssap://com.webos.service.ime/sendKeyEvent",
                     payload = JSONObject().apply {

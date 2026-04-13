@@ -22,6 +22,9 @@ class PanasonicTvController(override val device: TvDevice) : TvController {
     private val mediaType = "text/xml; charset=utf-8".toMediaType()
 
     companion object {
+        /** Stub-level implementation: keep disabled until full connect/validate path exists. */
+        fun supports(device: TvDevice): Boolean = false
+
         private val KEY_MAP = mapOf(
             TvKey.UP to "NRC_UP-ON",
             TvKey.DOWN to "NRC_DOWN-ON",
@@ -54,11 +57,13 @@ class PanasonicTvController(override val device: TvDevice) : TvController {
         )
     }
 
-    override suspend fun connect(): Boolean = true // Stateless
+    override suspend fun connect(): Boolean = false
 
     override fun disconnect() {}
 
-    override fun isConnected(): Boolean = true
+    override fun isConnected(): Boolean = false
+
+    override suspend fun validateConnection(): Boolean = false
 
     override suspend fun sendKey(key: TvKey) {
         val panasonicKey = KEY_MAP[key] ?: return

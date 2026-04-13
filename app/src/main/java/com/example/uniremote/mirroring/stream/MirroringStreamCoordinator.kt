@@ -2,7 +2,6 @@ package com.example.uniremote.mirroring.stream
 
 import android.app.Application
 import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import com.example.uniremote.cast.ScreenMirrorService
 import com.example.uniremote.mirroring.capture.MirroringGrantStore
@@ -43,29 +42,13 @@ class MirroringStreamCoordinator(
         val sessionToken = ScreenMirrorService.generateSessionToken()
 
         ScreenMirrorService.onSessionStarted = { publicEndpoint, authorizationHeader, maskedToken, tlsFp ->
-            val token = authorizationHeader
-                .takeIf { it.startsWith("Bearer ", ignoreCase = true) }
-                ?.substringAfter(' ')
-                ?.trim()
-                .orEmpty()
-
-            val authorizedEndpoint = if (token.isNotBlank()) {
-                val base = Uri.parse(publicEndpoint)
-                base.buildUpon()
-                    .appendQueryParameter("token", token)
-                    .build()
-                    .toString()
-            } else {
-                publicEndpoint
-            }
-
-            _streamUrl.value = authorizedEndpoint
+            _streamUrl.value = publicEndpoint
             _authHint.value = maskedToken
             _tlsFingerprint.value = tlsFp
             authHeader = authorizationHeader
             _isMirroring.value = true
 
-            onSessionReady?.invoke(authorizedEndpoint)
+            onSessionReady?.invoke(publicEndpoint)
         }
 
         ScreenMirrorService.onStopped = {

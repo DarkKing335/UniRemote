@@ -172,6 +172,7 @@ class AppPreferences(private val context: Context) {
 
     suspend fun deleteKnownDevice(id: String) {
         secureStore.removeDeviceToken(id)
+        secureStore.removeVizioTlsPin(id)
         context.dataStore.edit { prefs ->
             val current = deserializeKnownDevices(prefs[KEY_KNOWN_DEVICES] ?: "").toMutableList()
             current.removeAll { it.id == id }

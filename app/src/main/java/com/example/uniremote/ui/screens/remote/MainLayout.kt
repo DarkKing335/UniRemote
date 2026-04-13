@@ -117,7 +117,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel) {
                     icon = Icons.AutoMirrored.Filled.Input,
                     shape = CircleShape,
                     bg = DeepBtnBg,
-                    onClick = { vm.sendKey(TvKey.SOURCE) }
+                    onClick = { vm.triggerSourceAction() }
                 )
                 PremiumBtn(
                     modifier = Modifier.size(88.dp),
@@ -125,7 +125,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel) {
                     shape = CircleShape,
                     bg = GlassBtnBg,
                     glow = CyanText.copy(alpha = 0.25f),
-                    onClick = { vm.sendKey(TvKey.SEARCH) }
+                    onClick = { vm.triggerSearchAction() }
                 )
                 PowerCircleButton(modifier = Modifier.size(66.dp), onClick = { vm.power() })
             }
@@ -146,7 +146,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel) {
                     icon = Icons.Filled.Explore,
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
-                    onClick = { vm.sendKey(TvKey.MENU) }
+                    onClick = { vm.triggerActionMenu() }
                 )
                 PremiumBtn(
                     modifier = Modifier
@@ -156,7 +156,7 @@ fun MainLayout(pageAlpha: Float = 1f, vm: RemoteViewModel) {
                     icon = Icons.Filled.Tv,
                     shape = RoundedCornerShape(14.dp),
                     bg = Color(0xFF222B37),
-                    onClick = { vm.sendKey(TvKey.INFO) }
+                    onClick = { vm.triggerInfoAction() }
                 )
                 PremiumBtn(
                     modifier = Modifier

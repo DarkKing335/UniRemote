@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Network Security Config for UniRemote
+  Debug Network Security Config for UniRemote
   ─────────────────────────────────────────────────────────────────────────
-    Production lock policy: cleartext traffic is disabled by default.
-    Compatibility cleartext is only available in debug via src/debug override
-    and is still runtime-limited to LAN targets by TransportSecurityPolicy.
+    Allows cleartext for local interoperability testing in debug builds.
+    Runtime policy still enforces LAN-only cleartext destinations.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
-            <!-- Trust system CAs for any HTTPS calls (e.g. Play Store, update checks) -->
             <certificates src="system" />
         </trust-anchors>
     </base-config>

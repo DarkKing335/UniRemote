@@ -31,11 +31,13 @@ class AndroidTvController(
             TvKey.BACK       to 4,
             TvKey.HOME       to 3,
             TvKey.MENU       to 82,
+            TvKey.EXIT       to 4,
             TvKey.VOL_UP     to 24,
             TvKey.VOL_DOWN   to 25,
             TvKey.MUTE       to 164,
             TvKey.CH_UP      to 166,
             TvKey.CH_DOWN    to 167,
+            TvKey.GUIDE      to 172,
             TvKey.POWER      to 26,
             TvKey.PLAY       to 126,
             TvKey.PAUSE      to 127,
@@ -112,21 +114,16 @@ class AndroidTvController(
     override fun isConnected() = connected
 
     override suspend fun sendKey(key: TvKey): Unit = withContext(Dispatchers.IO) {
-        val keyCode = KEY_MAP[key] ?: return@withContext
+        val keyCode = KEY_MAP[key]
+            ?: throw UnsupportedOperationException("Android TV does not support key: $key")
         shell("input keyevent $keyCode")
     }
 
     override suspend fun sendText(text: String): Unit = withContext(Dispatchers.IO) {
-        // Safely escape the text for ADB shell input:
-        // Only allow alphanumerics + underscore as-is; escape everything else.
-        val safeText = text.map { c ->
-            when {
-                c.isLetterOrDigit() || c == '_' -> c.toString()
-                c == ' ' -> "%s"       // ADB 'input text' interprets %s as space
-                else -> "\\$c"         // escape shell metacharacters
-            }
-        }.joinToString("")
-        shell("input text '$safeText'")
+        if (text.isBlank()) return@withContext
+
+        val commands = AdbTextInputEncoder.buildShellCommands(text, device.brand)
+        commands.forEach { shell(it) }
     }
 
     override suspend fun getInstalledApps(): List<TvApp> = withContext(Dispatchers.IO) {

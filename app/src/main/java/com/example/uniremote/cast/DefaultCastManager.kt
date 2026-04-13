@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import java.util.Locale
 
 private enum class CastProtocol {
     DLNA,
@@ -37,6 +38,7 @@ class DefaultCastManager(
     private val mirroringCoordinator = MirroringStreamCoordinator(application)
     private var selectedProtocol: CastProtocol = CastProtocol.DLNA
     private val selectedProtocolFlow = MutableStateFlow(CastProtocol.DLNA)
+    private var selectedRendererName: String? = null
 
     private val emptyRendererFlow = MutableStateFlow<List<DlnaRenderer>>(emptyList())
     private val emptyStateFlow = MutableStateFlow<CastState>(CastState.Idle)
@@ -102,6 +104,7 @@ class DefaultCastManager(
     }
 
     fun selectRenderer(rendererUdn: String, rendererName: String) {
+        selectedRendererName = rendererName
         if (googleCastManager != null && googleCastManager.isGoogleCastRenderer(rendererUdn)) {
             selectedProtocol = CastProtocol.GOOGLE_CAST
             selectedProtocolFlow.value = CastProtocol.GOOGLE_CAST
@@ -204,6 +207,13 @@ class DefaultCastManager(
                 return@start
             }
 
+            // Sony Bravia/KDL DLNA renderers commonly reject live Annex-B H264 endpoints
+            // with UPnP 501 on SetAVTransportURI, while file/image casting still works.
+            // Skip auto-push to prevent repeated error state spam.
+            if (isLikelySonyDlnaRenderer()) {
+                return@start
+            }
+
             runCatching {
                 castMedia(
                     url = publicEndpoint,
@@ -231,5 +241,11 @@ class DefaultCastManager(
             selectedProtocol == CastProtocol.GOOGLE_CAST ||
                 (activeGoogleState !is CastState.Idle && activeGoogleState !is CastState.Discovering)
             )
+    }
+
+    private fun isLikelySonyDlnaRenderer(): Boolean {
+        if (selectedProtocol != CastProtocol.DLNA) return false
+        val name = selectedRendererName?.lowercase(Locale.US) ?: return false
+        return name.contains("sony") || name.contains("bravia") || name.contains("kdl")
     }
 }

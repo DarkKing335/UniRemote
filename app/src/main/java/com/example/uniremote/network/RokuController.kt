@@ -33,7 +33,7 @@ class RokuController(override val device: TvDevice) : TvController {
 
     private val baseUrl = "http://${device.ip}:${device.port}"
     private fun isRokuCompatibilityAllowed(): Boolean {
-        return TransportSecurityPolicy.allowInsecureDeviceProtocol("Roku ECP over http://")
+        return TransportSecurityPolicy.allowInsecureDeviceProtocol("Roku ECP over http://", host = device.ip)
     }
     // @Volatile: read/written from IO coroutines and OkHttp callback threads
     @Volatile private var isConnected = false
@@ -61,6 +61,12 @@ class RokuController(override val device: TvDevice) : TvController {
             TvKey.RW       to "Rev",
             TvKey.INFO     to "Info",
             TvKey.SEARCH   to "Search",
+            TvKey.SOURCE   to "InputTuner",
+            TvKey.HDMI_1   to "InputHDMI1",
+            TvKey.HDMI_2   to "InputHDMI2",
+            TvKey.HDMI_3   to "InputHDMI3",
+            TvKey.HDMI_4   to "InputHDMI4",
+            TvKey.AV       to "InputAV1",
         )
     }
 
@@ -90,7 +96,8 @@ class RokuController(override val device: TvDevice) : TvController {
     override fun isConnected(): Boolean = isConnected
 
     override suspend fun sendKey(key: TvKey): Unit = withContext(Dispatchers.IO) {
-        val rokuKey = KEY_MAP[key] ?: return@withContext
+        val rokuKey = KEY_MAP[key]
+            ?: throw UnsupportedOperationException("Roku does not support key: $key")
         post("$baseUrl/keypress/$rokuKey")
     }
 

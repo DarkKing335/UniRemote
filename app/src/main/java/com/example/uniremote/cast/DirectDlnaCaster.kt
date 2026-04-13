@@ -9,6 +9,7 @@ import org.xmlpull.v1.XmlPullParserFactory
 import java.io.StringReader
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 /**
  * Direct HTTP/SOAP DLNA control client — does NOT require jUPnP to be running.
@@ -21,6 +22,12 @@ import java.net.URL
  * This is the same approach VLC and most working DLNA apps use on Android.
  */
 internal class DirectDlnaCaster {
+
+    private enum class MetadataMode {
+        STANDARD,
+        WILDCARD_PROTOCOL,
+        EMPTY
+    }
 
     companion object {
         private const val TAG = "DirectDlna"
@@ -59,24 +66,36 @@ internal class DirectDlnaCaster {
 
             Log.i(TAG, "Casting to controlUrl=$controlUrl mediaUrl=$mediaUrl")
 
-            val setUriResult = soapPost(
-                url        = controlUrl,
-                action     = "SetAVTransportURI",
-                serviceType = AV_TRANSPORT_SERVICE_TYPE,
-                body       = setUriBody(mediaUrl, title, mimeType)
+            val setUriModes = listOf(
+                MetadataMode.STANDARD,
+                MetadataMode.WILDCARD_PROTOCOL,
+                MetadataMode.EMPTY
             )
-            if (setUriResult.isFailure) {
-                // Retry once with empty metadata
-                val retry = soapPost(
-                    url         = controlUrl,
-                    action      = "SetAVTransportURI",
+
+            var setUriAccepted = false
+            var lastSetUriError: Throwable? = null
+            for ((index, mode) in setUriModes.withIndex()) {
+                val setUriResult = soapPost(
+                    url = controlUrl,
+                    action = "SetAVTransportURI",
                     serviceType = AV_TRANSPORT_SERVICE_TYPE,
-                    body        = setUriBody(mediaUrl, title, mimeType, emptyMeta = true)
+                    body = setUriBody(mediaUrl, title, mimeType, mode)
                 )
-                if (retry.isFailure) {
-                    onFailure("SetAVTransportURI failed: ${retry.exceptionOrNull()?.message}")
-                    return@withContext
+                if (setUriResult.isSuccess) {
+                    setUriAccepted = true
+                    break
                 }
+
+                lastSetUriError = setUriResult.exceptionOrNull()
+                Log.w(
+                    TAG,
+                    "SetAVTransportURI attempt=${index + 1}/${setUriModes.size} failed: ${lastSetUriError?.message}"
+                )
+            }
+
+            if (!setUriAccepted) {
+                onFailure("SetAVTransportURI failed: ${lastSetUriError?.message}")
+                return@withContext
             }
 
             delay(200L)
@@ -241,8 +260,27 @@ internal class DirectDlnaCaster {
         """<s:Body><u:$action xmlns:u="$serviceType">$body</u:$action></s:Body>""" +
         """</s:Envelope>"""
 
-    private fun setUriBody(mediaUrl: String, title: String, mimeType: String, emptyMeta: Boolean = false): String {
-        val meta = if (emptyMeta) "" else didlMeta(title, mediaUrl, mimeType)
+    private fun setUriBody(
+        mediaUrl: String,
+        title: String,
+        mimeType: String,
+        mode: MetadataMode
+    ): String {
+        val meta = when (mode) {
+            MetadataMode.EMPTY -> ""
+            MetadataMode.WILDCARD_PROTOCOL -> didlMeta(
+                title = title,
+                url = mediaUrl,
+                mimeType = mimeType,
+                wildcardProtocolMime = true
+            )
+            MetadataMode.STANDARD -> didlMeta(
+                title = title,
+                url = mediaUrl,
+                mimeType = mimeType,
+                wildcardProtocolMime = false
+            )
+        }
         return "<InstanceID>0</InstanceID>" +
                "<CurrentURI>${escapeXml(mediaUrl)}</CurrentURI>" +
                "<CurrentURIMetaData>${escapeXml(meta)}</CurrentURIMetaData>"
@@ -252,21 +290,38 @@ internal class DirectDlnaCaster {
     private fun pauseBody() = "<InstanceID>0</InstanceID>"
     private fun stopBody()  = "<InstanceID>0</InstanceID>"
 
-    private fun didlMeta(title: String, url: String, mimeType: String): String {
+    private fun didlMeta(
+        title: String,
+        url: String,
+        mimeType: String,
+        wildcardProtocolMime: Boolean
+    ): String {
         val upnpClass = when {
             mimeType.startsWith("video") -> "object.item.videoItem"
             mimeType.startsWith("image") -> "object.item.imageItem"
             mimeType.startsWith("audio") -> "object.item.audioItem"
             else                         -> "object.item"
         }
+
+        val protocolMime = normalizeProtocolMime(mimeType, wildcardProtocolMime)
         return """<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" """ +
                """xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" """ +
                """xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">""" +
                """<item id="0" parentID="0" restricted="1">""" +
                """<dc:title>${escapeXml(title)}</dc:title>""" +
                """<upnp:class>$upnpClass</upnp:class>""" +
-               """<res protocolInfo="http-get:*:$mimeType:*">${escapeXml(url)}</res>""" +
+               """<res protocolInfo="http-get:*:$protocolMime:*">${escapeXml(url)}</res>""" +
                """</item></DIDL-Lite>"""
+    }
+
+    private fun normalizeProtocolMime(mimeType: String, wildcard: Boolean): String {
+        if (wildcard) return "*"
+
+        val normalized = mimeType.trim().lowercase(Locale.US)
+        if (normalized.isBlank()) return "*"
+        if (normalized.contains('*')) return "*"
+        if (!normalized.contains('/')) return "*"
+        return normalized
     }
 
     private fun escapeXml(v: String) = v

@@ -60,6 +60,7 @@ class GoogleTvController(
             TvKey.NUM_6    to 13,  TvKey.NUM_7     to 14,  TvKey.NUM_8 to 15,
             TvKey.NUM_9    to 16,
             TvKey.SOURCE   to 178, TvKey.INFO      to 165, TvKey.SETTINGS to 176,
+            TvKey.GUIDE    to 172,
             TvKey.SEARCH   to 84,  TvKey.SLEEP     to 223,
             TvKey.ANDROID_LAUNCHER to 3,
             // Netflix/YouTube are handled via launchApp() — no keycode equivalent
@@ -605,7 +606,7 @@ class GoogleTvController(
             when (key) {
                 TvKey.NETFLIX  -> { launchApp("com.netflix.ninja");            return }
                 TvKey.YOUTUBE  -> { launchApp("com.google.android.youtube.tv"); return }
-                else           -> { Log.w(TAG, "No mapping for $key");          return }
+                else           -> throw UnsupportedOperationException("Google TV does not support key: $key")
             }
         }
         cmdChannel.send(CtrlCmd.Payload(msgKey(code)))

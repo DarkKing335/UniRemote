@@ -1,12 +1,21 @@
 package com.example.uniremote.network
 
+import android.content.Context
 import android.util.Log
+import com.example.uniremote.BuildConfig
+import com.example.uniremote.data.SecureCredentialStore
 import com.example.uniremote.data.TvDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
-import java.net.URL
-import javax.net.ssl.HttpsURLConnection
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.security.MessageDigest
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import java.util.Locale
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManager
 import javax.net.ssl.X509TrustManager
@@ -18,70 +27,142 @@ private const val TAG = "VizioTvController"
  * Port: 7345 (HTTPS)
  * Note: Requires PIN pairing for first access.
  */
-class VizioTvController(override val device: TvDevice) : TvController {
+class VizioTvController(
+    override val device: TvDevice,
+    appContext: Context? = null
+) : TvController {
+
+    companion object {
+        /**
+         * Vizio SmartCast currently relies on permissive trust for self-signed certs.
+         * Keep this controller disabled in production until proper certificate pinning is implemented.
+         */
+        fun supports(device: TvDevice): Boolean = BuildConfig.ENABLE_INSECURE_DEVICE_PROTOCOLS
+
+        private val JSON = "application/json; charset=utf-8".toMediaType()
+    }
 
     private val baseUrl = "https://${device.ip}:7345"
-    private var authToken: String? = null // Should be persisted in real app
+    private var authToken: String? = device.token
+    @Volatile private var connected = false
+    @Volatile private var failureReason: String? = null
+    private val secureStore = appContext?.let { SecureCredentialStore(it) }
 
-    init {
-        setupUnsafeTrustManager()
+    // Scoped per-controller HTTP client. No global TLS overrides are applied.
+    private val client: OkHttpClient by lazy {
+        val trustAll = object : X509TrustManager {
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+            override fun checkClientTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) = Unit
+            override fun checkServerTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) = Unit
+        }
+
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf<TrustManager>(trustAll), SecureRandom())
+
+        NetworkClient.instance.newBuilder()
+            .sslSocketFactory(sslContext.socketFactory, trustAll)
+            .hostnameVerifier { _, _ -> true }
+            .build()
     }
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        clearConnectionFailureReason()
+
+        if (!supports(device)) {
+            failureReason = "Vizio control is disabled in production until strict TLS pinning rollout is completed."
+            connected = false
+            return@withContext false
+        }
+
         try {
-            val url = URL("$baseUrl/state/device/app/all")
-            val conn = url.openConnection() as HttpsURLConnection
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 3000
-            val code = conn.responseCode
-            code == 200 || code == 401 // 401 means it's alive but needs pairing
+            val request = Request.Builder()
+                .url("$baseUrl/state/device/app/all")
+                .apply {
+                    if (!authToken.isNullOrBlank()) {
+                        header("AUTH", authToken!!)
+                    }
+                }
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!verifyPinnedTls(response)) {
+                    connected = false
+                    return@withContext false
+                }
+                connected = response.code == 200 || response.code == 401
+                connected
+            }
         } catch (e: Exception) {
+            if (failureReason.isNullOrBlank()) {
+                failureReason = "Failed TLS connection to Vizio TV. Check network or trusted certificate state."
+            }
             Log.e(TAG, "Failed to connect to Vizio at ${device.ip}", e)
+            connected = false
             false
         }
     }
 
-    override fun disconnect() {}
+    override fun disconnect() { connected = false }
 
-    override fun isConnected(): Boolean = true
+    override fun isConnected(): Boolean = connected
+
+    override suspend fun validateConnection(): Boolean = connect()
+
+    override fun getConnectionFailureReason(): String? = failureReason
+
+    override fun clearConnectionFailureReason() {
+        failureReason = null
+    }
 
     override suspend fun sendKey(key: TvKey) {
+        if (!supports(device)) return
         val vizioKey = mapToVizioKey(key) ?: return
         put("/key_command/", vizioKey)
     }
 
     override suspend fun sendText(text: String) {
+        if (!supports(device)) return
         // Vizio supports text injection via IME
         put("/ime/text_input", text)
     }
 
     override suspend fun getInstalledApps(): List<TvApp> = withContext(Dispatchers.IO) {
+        if (!supports(device)) return@withContext emptyList()
         // Vizio apps are mostly web-based and listed in a specific payload
         emptyList() // Placeholder
     }
 
     override suspend fun launchApp(appId: String) {
+        if (!supports(device)) return
         // POST /app/launch
     }
 
     private suspend fun put(path: String, value: String) = withContext(Dispatchers.IO) {
+        if (!supports(device)) return@withContext
         try {
-            val url = URL("$baseUrl$path")
-            val conn = url.openConnection() as HttpsURLConnection
-            conn.requestMethod = "PUT"
-            conn.setRequestProperty("Content-Type", "application/json")
-            if (authToken != null) {
-                conn.setRequestProperty("AUTH", authToken)
-            }
-            conn.doOutput = true
-            
             val json = when {
                 path.contains("key_command") -> "{\"KEYLIST\": [{\"CODESET\": 1, \"CODE\": $value, \"ACTION\": \"KEYPRESS\"}]}"
                 else -> "{\"VALUE\": \"$value\"}"
             }
-            
-            conn.outputStream.use { it.write(json.toByteArray()) }
-            Log.d(TAG, "PUT $path returned ${conn.responseCode}")
+
+            val request = Request.Builder()
+                .url("$baseUrl$path")
+                .apply {
+                    if (!authToken.isNullOrBlank()) {
+                        header("AUTH", authToken!!)
+                    }
+                }
+                .put(json.toRequestBody(JSON))
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!verifyPinnedTls(response)) {
+                    connected = false
+                    return@withContext
+                }
+                Log.d(TAG, "PUT $path returned ${response.code}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error PUTting to Vizio: $path", e)
         }
@@ -102,24 +183,43 @@ class VizioTvController(override val device: TvDevice) : TvController {
         else -> null
     }
 
-    /**
-     * Vizio TVs usually use self-signed certs.
-     * In a production app, we should pin the specific cert.
-     */
-    private fun setupUnsafeTrustManager() {
-        val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate>? = null
-            override fun checkClientTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
-            override fun checkServerTrusted(certs: Array<java.security.cert.X509Certificate>, authType: String) {}
-        })
-
-        try {
-            val sc = SSLContext.getInstance("SSL")
-            sc.init(null, trustAllCerts, java.security.SecureRandom())
-            HttpsURLConnection.setDefaultSSLSocketFactory(sc.socketFactory)
-            HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to setup unsafe trust manager", e)
+    private fun verifyPinnedTls(response: Response): Boolean {
+        val cert = response.handshake
+            ?.peerCertificates
+            ?.firstOrNull() as? X509Certificate
+        if (cert == null) {
+            failureReason = "TLS trust failed: no server certificate received from Vizio TV."
+            return false
         }
+
+        val store = secureStore
+        if (store == null) {
+            failureReason = "TLS trust store unavailable; cannot verify Vizio certificate pin."
+            return false
+        }
+
+        val fingerprint = sha256Fingerprint(cert)
+        val pinned = store.getVizioTlsPin(device.id)
+
+        if (pinned.isNullOrBlank()) {
+            store.putVizioTlsPin(device.id, fingerprint)
+            Log.i(TAG, "Pinned Vizio certificate for ${device.name}: ${fingerprint.take(16)}...")
+            return true
+        }
+
+        if (!pinned.equals(fingerprint, ignoreCase = true)) {
+            failureReason =
+                "TLS trust failed for ${device.name}: certificate changed. Possible MITM or TV cert reset. " +
+                    "Forget and re-pair only if you trust this network."
+            Log.e(TAG, "Vizio cert pin mismatch for ${device.id}. pinned=$pinned actual=$fingerprint")
+            return false
+        }
+
+        return true
+    }
+
+    private fun sha256Fingerprint(cert: X509Certificate): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(cert.encoded)
+        return digest.joinToString(":") { "%02X".format(it) }.uppercase(Locale.US)
     }
 }

@@ -2,19 +2,5 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/Android-DLNA-Server" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/LocalScreenShare-Android" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/RootEncoder" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/RxDNSSD" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/UPnPCast" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/UniversalMediaServer" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/cling" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/dlna-cast" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/matvt" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/scrcpy" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/Cast-gitclone/universal-remote-card" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/gitclone/ESP32_android_tv_remote_v2" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/gitclone/androidtvremote2" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/gitclone/atvremote" vcs="Git" />
   </component>
 </project>

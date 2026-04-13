@@ -78,7 +78,15 @@ fun SlidingActionButtonStrip(
                         icon     = item.icon,
                         fontSize = item.fontSize,
                         shape    = stripShape,
-                        onClick  = { item.key?.let { vm.sendKey(it) } }
+                        onClick  = {
+                            when (item.key) {
+                                TvKey.GUIDE -> vm.triggerGuideAction()
+                                TvKey.MENU -> vm.triggerActionMenu()
+                                TvKey.CH_UP -> vm.triggerDigitalAnalogAction()
+                                TvKey.SOURCE -> vm.triggerSourceAction()
+                                else -> item.key?.let { vm.sendKey(it) }
+                            }
+                        }
                     )
                 }
             }

@@ -1,6 +1,5 @@
 package com.example.uniremote.cast
 
-import android.util.Base64
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.security.SecureRandom
@@ -160,10 +159,9 @@ class StreamSessionAccessController(
         fun generateSessionToken(): String {
             val bytes = ByteArray(TOKEN_BYTES)
             secureRandom.nextBytes(bytes)
-            return Base64.encodeToString(
-                bytes,
-                Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING
-            )
+            return bytes.joinToString(separator = "") { byte ->
+                "%02x".format(byte.toInt() and 0xFF)
+            }
         }
 
         private fun isSameSubnet(clientIp: String, serverIp: String, prefixLength: Int?): Boolean {

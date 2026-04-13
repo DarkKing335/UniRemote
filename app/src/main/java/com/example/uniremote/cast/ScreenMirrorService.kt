@@ -17,7 +17,6 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.net.ConnectivityManager
 import android.net.LinkAddress
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -117,16 +116,6 @@ class ScreenMirrorService : Service() {
 
         fun buildAuthorizationHeaderValue(token: String): String {
             return "Bearer $token"
-        }
-
-        fun buildAuthorizedEndpointUrl(publicEndpoint: String, token: String): String {
-            return runCatching {
-                Uri.parse(publicEndpoint)
-                    .buildUpon()
-                    .appendQueryParameter("token", token)
-                    .build()
-                    .toString()
-            }.getOrDefault(publicEndpoint)
         }
 
         fun maskToken(token: String): String {
@@ -291,8 +280,7 @@ class ScreenMirrorService : Service() {
         }
 
         val endpoint = buildStreamEndpointUrl(shownIp, secure = useTlsTransport)
-        val authorizedEndpoint = buildAuthorizedEndpointUrl(endpoint, credentials.token)
-        notificationEndpoint = authorizedEndpoint
+        notificationEndpoint = endpoint
         streamUrl = endpoint
 
         val serverStarted = runCatching {
@@ -321,7 +309,7 @@ class ScreenMirrorService : Service() {
         )
         Log.i(
             TAG,
-            "Mirroring session started. endpoint=$notificationEndpoint secure=$useTlsTransport ttlMs=$SESSION_TTL_MS tokenPrefix=${credentials.token.take(4)}**** restriction=$restrictionMode prefix=$networkPrefix tlsFp=${tlsFingerprintSha256?.take(12)}..."
+            "Mirroring session started. endpoint=$notificationEndpoint secure=$useTlsTransport ttlMs=$SESSION_TTL_MS restriction=$restrictionMode prefix=$networkPrefix tlsFp=${tlsFingerprintSha256?.take(12)}..."
         )
     }
 
@@ -1013,8 +1001,6 @@ class ScreenMirrorService : Service() {
                 val bearer = authHeader.substringAfter(' ').trim()
                 if (bearer.isNotBlank()) return bearer
             }
-            val tokenParam = session.parameters["token"]?.firstOrNull()?.trim()
-            if (!tokenParam.isNullOrBlank()) return tokenParam
             return null
         }
     }

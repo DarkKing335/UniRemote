@@ -379,6 +379,10 @@ class CastRepository(private val context: Context) {
     ) {
         consecutiveTelemetryFailures = 0
         val routedMediaUrl = adaptLocalUrlForRenderer(mediaUrl, rendererUdn)
+        if (!TransportSecurityPolicy.allowCleartextForUrl(routedMediaUrl, "DLNA cast media")) {
+            stateMachine.onError("Blocked non-LAN cleartext media URL. Use HTTPS or a local LAN host.")
+            return
+        }
         activeRendererUdn = rendererUdn
         stateMachine.onSendingUri(title, rendererName)
 
@@ -405,7 +409,7 @@ class CastRepository(private val context: Context) {
                             location   = location,
                             mediaUrl   = routedMediaUrl,
                             title      = title,
-                            mimeType   = "video/*",
+                            mimeType   = inferMimeTypeFromUrl(routedMediaUrl),
                             onSuccess  = onSuccess,
                             onFailure  = onFailure2
                         )
@@ -719,5 +723,24 @@ class CastRepository(private val context: Context) {
 
     private fun canonicalUdn(udn: String): String {
         return udn.trim().removePrefix("uuid:").lowercase(Locale.US)
+    }
+
+    private fun inferMimeTypeFromUrl(url: String): String {
+        val lower = url.substringBefore('?').lowercase(Locale.US)
+        return when {
+            lower.endsWith(".mp4") -> "video/mp4"
+            lower.endsWith(".mkv") -> "video/x-matroska"
+            lower.endsWith(".webm") -> "video/webm"
+            lower.endsWith(".mov") -> "video/quicktime"
+            lower.endsWith(".m3u8") -> "application/vnd.apple.mpegurl"
+            lower.endsWith(".h264") || lower.endsWith(".avc") -> "video/avc"
+            lower.endsWith(".mp3") -> "audio/mpeg"
+            lower.endsWith(".aac") -> "audio/aac"
+            lower.endsWith(".wav") -> "audio/wav"
+            lower.endsWith(".jpg") || lower.endsWith(".jpeg") -> "image/jpeg"
+            lower.endsWith(".png") -> "image/png"
+            lower.endsWith(".gif") -> "image/gif"
+            else -> "video/mp4"
+        }
     }
 }

@@ -97,7 +97,8 @@ class SamsungTvController(
 
     private fun canUseInsecureSamsungProtocol(): Boolean {
         return TransportSecurityPolicy.allowInsecureDeviceProtocol(
-            "Samsung Remote API over ws/http (non-TLS)"
+            "Samsung Remote API over ws/http (non-TLS)",
+            host = device.ip
         )
     }
 

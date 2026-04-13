@@ -1,5 +1,6 @@
 package com.example.uniremote.network
 
+import android.content.Context
 import android.util.Log
 import com.example.uniremote.BuildConfig
 import com.example.uniremote.data.TvBrand
@@ -19,11 +20,14 @@ import kotlinx.coroutines.withTimeoutOrNull
  * Handles the connection lifecycle, protocol initialization, and command dispatching
  * to TvControllers, reducing the RemoteViewModel God Object anti-pattern.
  */
-class DeviceConnectionManager {
+class DeviceConnectionManager(
+    private val appContext: Context? = null
+) {
     var onTokenReceived: ((String) -> Unit)? = null
     private val TAG = "DeviceConnManager"
     private val CONNECT_TIMEOUT_MS = 10_000L   // raised from 4s — some TVs are slow to respond
     private val SILENT_CONNECT_TIMEOUT_MS = 5_000L  // shorter for background auto-connect
+    private val CONNECT_VALIDATE_TIMEOUT_MS = 2_500L
 
     private val _connectionStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -46,6 +50,13 @@ class DeviceConnectionManager {
     private var googleTvPairingCtrl: GoogleTvController? = null
     private val connectMutex = Mutex()
 
+    private data class ControllerCandidate(
+        val priority: Int,
+        val name: String,
+        val supports: (TvDevice) -> Boolean,
+        val factory: (TvDevice) -> TvController
+    )
+
     // ── Public helpers ─────────────────────────────────────────────────────────
 
     /**
@@ -66,13 +77,16 @@ class DeviceConnectionManager {
     suspend fun tryConnectSilently(device: TvDevice): Boolean {
         return runCatching {
             controller?.disconnect()
+            val factories = controllerFactories(device)
+            if (factories.isEmpty()) {
+                Log.w(TAG, "No supported controller candidates for ${device.brand} (${device.name})")
+                return@runCatching false
+            }
             // Use a shorter timeout for silent background attempts — we do not want
             // the startup auto-connect to block the UI for 10s per controller per device.
-            for (factory in controllerFactories(device)) {
+            for (factory in factories) {
                 val ctrl = factory()
-                val success = withTimeoutOrNull(SILENT_CONNECT_TIMEOUT_MS) {
-                    runCatching { ctrl.connect() }.getOrElse { false }
-                } ?: false
+                val success = attemptConnectAndValidate(ctrl, SILENT_CONNECT_TIMEOUT_MS)
                 if (success) {
                     controller = ctrl
                     _connectedDevice.value = device
@@ -100,15 +114,28 @@ class DeviceConnectionManager {
 
             var success = false
             var chosenCtrl: TvController? = null
-            for (factory in controllerFactories(device)) {
+            var failureReason: String? = null
+            val factories = controllerFactories(device)
+            if (factories.isEmpty()) {
+                _connectionStatus.value = ConnectionStatus.Error(
+                    "Khong co giao thuc dieu khien nao duoc ho tro cho ${device.name}."
+                )
+                controller = null
+                _connectedDevice.value = null
+                _isAdbFallbackMode.value = false
+                return@withLock false
+            }
+
+            for (factory in factories) {
                 val ctrl = factory()
-                success = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
-                    runCatching { ctrl.connect() }.getOrElse { false }
-                } ?: false
+                success = attemptConnectAndValidate(ctrl, CONNECT_TIMEOUT_MS)
 
                 if (success) {
                     chosenCtrl = ctrl
                     break
+                }
+                if (failureReason.isNullOrBlank()) {
+                    failureReason = ctrl.getConnectionFailureReason()
                 }
                 ctrl.disconnect()  // dispose the failed controller immediately
             }
@@ -123,6 +150,8 @@ class DeviceConnectionManager {
                 _connectionStatus.value = ConnectionStatus.Error(
                     if (compatibilityBlocked) {
                         "Ket noi bi chan boi che do bao mat production (insecure protocol disabled)."
+                    } else if (!failureReason.isNullOrBlank()) {
+                        failureReason
                     } else {
                         "Khong the ket noi voi ${device.name}. Kiem tra TV dang bat va cung mang Wi-Fi."
                     }
@@ -245,34 +274,92 @@ class DeviceConnectionManager {
      * Non-selected controllers are never instantiated, so their SSL sockets / coroutine
      * scopes are never opened (fixing the scope-leak in GOOGLE_TV / UNKNOWN chains).
      */
-    private fun controllerFactories(device: TvDevice): List<() -> TvController> = when (device.brand) {
+    private fun controllerFactories(device: TvDevice): List<() -> TvController> {
+        val selected = controllerCandidates(device)
+            .asSequence()
+            .filter { it.supports(device) }
+            .sortedByDescending { it.priority }
+            .toList()
+
+        Log.i(TAG, "Controller plan for ${device.name}: ${selected.joinToString { it.name }}")
+        return selected.map { candidate -> { candidate.factory(device) } }
+    }
+
+    private fun controllerCandidates(device: TvDevice): List<ControllerCandidate> = when (device.brand) {
         TvBrand.SAMSUNG -> listOf(
-            { SamsungTvController(device) { token -> onTokenReceived?.invoke(token) } }
+            ControllerCandidate(
+                priority = 100,
+                name = "SamsungTvController",
+                supports = { true },
+                factory = { d -> SamsungTvController(d) { token -> onTokenReceived?.invoke(token) } }
+            )
         )
+
         TvBrand.LG -> listOf(
-            { LgWebOsController(device) { token -> onTokenReceived?.invoke(token) } }
+            ControllerCandidate(
+                priority = 100,
+                name = "LgWebOsController",
+                supports = { true },
+                factory = { d -> LgWebOsController(d) { token -> onTokenReceived?.invoke(token) } }
+            )
         )
+
         TvBrand.FIRE_TV -> listOf(
-            { AndroidTvController(device) }
+            ControllerCandidate(
+                priority = 100,
+                name = "AndroidTvController",
+                supports = { true },
+                factory = { d -> AndroidTvController(d) }
+            )
         )
+
         TvBrand.ROKU -> listOf(
-            { RokuController(device) }
+            ControllerCandidate(
+                priority = 100,
+                name = "RokuController",
+                supports = { true },
+                factory = { d -> RokuController(d) }
+            )
         )
 
         TvBrand.PANASONIC -> listOf(
-            { PanasonicTvController(device) }
+            ControllerCandidate(
+                priority = 10,
+                name = "AndroidTvController",
+                supports = { true },
+                factory = { d -> AndroidTvController(d) }
+            )
         )
 
-        TvBrand.VIZIO -> buildList {
-            add { VizioTvController(device) }
-            add { AndroidTvController(device) }
-        }
+        TvBrand.VIZIO -> listOf(
+            ControllerCandidate(
+                priority = 100,
+                name = "VizioTvController",
+                supports = { d -> VizioTvController.supports(d) },
+                factory = { d -> VizioTvController(d, appContext) }
+            ),
+            ControllerCandidate(
+                priority = 10,
+                name = "AndroidTvController",
+                supports = { true },
+                factory = { d -> AndroidTvController(d) }
+            )
+        )
 
-        TvBrand.HISENSE -> buildList {
-            add { HisenseTvController(device) }
-            add { GoogleTvController(device) { state -> _pairingState.value = state } }
-            add { AndroidTvController(device) }
-        }
+        TvBrand.HISENSE -> listOf(
+            ControllerCandidate(
+                priority = 90,
+                name = "GoogleTvController",
+                supports = { true },
+                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+            ),
+            ControllerCandidate(
+                priority = 10,
+                name = "AndroidTvController",
+                supports = { true },
+                factory = { d -> AndroidTvController(d) }
+            )
+        )
 
         TvBrand.GOOGLE_TV,
         TvBrand.ANDROID,
@@ -280,37 +367,97 @@ class DeviceConnectionManager {
         TvBrand.TCL,
         TvBrand.TOSHIBA,
         TvBrand.SHARP,
-        TvBrand.PHILIPS -> buildList {
-            // 1st: Google TV Remote Protocol (port 6466) — native pairing/control
-            add { GoogleTvController(device) { state -> _pairingState.value = state } }
-            // Last resort: ADB — connects if TV has Developer Options + ADB over network enabled
-            add { AndroidTvController(device) }
-        }
+        TvBrand.PHILIPS -> listOf(
+            ControllerCandidate(
+                priority = 100,
+                name = "GoogleTvController",
+                supports = { true },
+                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+            ),
+            ControllerCandidate(
+                priority = 10,
+                name = "AndroidTvController",
+                supports = { true },
+                factory = { d -> AndroidTvController(d) }
+            )
+        )
 
-        TvBrand.SONY -> buildList {
-            // Sony Bravia — two protocol generations, try in order:
-            // 1st: Google TV Remote Protocol — Android TV models (2016+, KDL-43W800F etc.)
-            add { GoogleTvController(device) { state -> _pairingState.value = state } }
-            // 2nd: Sony IRCC-IP — pre-Android TV models (older KDL, EX, HX series 2012–2015)
-            add {
-                SonyBraviaController(
-                    device          = device,
-                    pinChannel      = Channel(Channel.RENDEZVOUS),
-                    onPairingState  = { state -> _pairingState.value = state },
-                    onTokenReceived = { token -> onTokenReceived?.invoke(token) }
-                )
-            }
-            // Last resort: ADB
-            add { AndroidTvController(device) }
-        }
+        TvBrand.SONY -> listOf(
+            ControllerCandidate(
+                priority = 100,
+                name = "GoogleTvController",
+                supports = { true },
+                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+            ),
+            ControllerCandidate(
+                priority = 80,
+                name = "SonyBraviaController",
+                supports = { true },
+                factory = { d ->
+                    SonyBraviaController(
+                        device          = d,
+                        pinChannel      = Channel(Channel.RENDEZVOUS),
+                        onPairingState  = { state -> _pairingState.value = state },
+                        onTokenReceived = { token -> onTokenReceived?.invoke(token) }
+                    )
+                }
+            ),
+            ControllerCandidate(
+                priority = 10,
+                name = "AndroidTvController",
+                supports = { true },
+                factory = { d -> AndroidTvController(d) }
+            )
+        )
 
         TvBrand.UNKNOWN -> listOf(
-            { SamsungTvController(device) { token -> onTokenReceived?.invoke(token) } },
-            { LgWebOsController(device) { token -> onTokenReceived?.invoke(token) } },
-            { GoogleTvController(device) { state -> _pairingState.value = state } },
-            // Last resort: ADB
-            { AndroidTvController(device) }
+            ControllerCandidate(
+                priority = 100,
+                name = "SamsungTvController",
+                supports = { true },
+                factory = { d -> SamsungTvController(d) { token -> onTokenReceived?.invoke(token) } }
+            ),
+            ControllerCandidate(
+                priority = 90,
+                name = "LgWebOsController",
+                supports = { true },
+                factory = { d -> LgWebOsController(d) { token -> onTokenReceived?.invoke(token) } }
+            ),
+            ControllerCandidate(
+                priority = 80,
+                name = "GoogleTvController",
+                supports = { true },
+                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+            ),
+            ControllerCandidate(
+                priority = 10,
+                name = "AndroidTvController",
+                supports = { true },
+                factory = { d -> AndroidTvController(d) }
+            )
         )
+    }
+
+    private suspend fun attemptConnectAndValidate(ctrl: TvController, timeoutMs: Long): Boolean {
+        ctrl.clearConnectionFailureReason()
+
+        val connected = withTimeoutOrNull(timeoutMs) {
+            runCatching { ctrl.connect() }.getOrElse { false }
+        } ?: false
+
+        if (!connected) return false
+
+        val validated = withTimeoutOrNull(CONNECT_VALIDATE_TIMEOUT_MS) {
+            runCatching { ctrl.validateConnection() }.getOrElse { false }
+        } ?: false
+
+        if (!validated) {
+            Log.w(TAG, "Post-connect validation failed for ${ctrl::class.simpleName}")
+            runCatching { ctrl.disconnect() }
+            return false
+        }
+
+        return true
     }
 
     fun onCleared() {

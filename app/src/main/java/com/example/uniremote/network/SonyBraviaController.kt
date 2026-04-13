@@ -150,7 +150,7 @@ class SonyBraviaController(
             return@withContext true
         }
 
-        if (!TransportSecurityPolicy.allowInsecureDeviceProtocol("Sony IRCC-IP over http://")) {
+        if (!TransportSecurityPolicy.allowInsecureDeviceProtocol("Sony IRCC-IP over http://", host = device.ip)) {
             connected = false
             return@withContext false
         }
@@ -268,10 +268,8 @@ class SonyBraviaController(
     override fun saveToken(token: String) { liveToken = token }
 
     override suspend fun sendKey(key: TvKey): Unit = withContext(Dispatchers.IO) {
-        val ircc = KEY_MAP[key] ?: run {
-            Log.w(TAG, "No IRCC code for key $key")
-            return@withContext
-        }
+        val ircc = KEY_MAP[key]
+            ?: throw UnsupportedOperationException("Sony Bravia IRCC does not support key: $key")
         val psk = liveToken ?: return@withContext
         val soapBody = buildIrccSoap(ircc)
         runCatching {
@@ -409,7 +407,7 @@ class SonyBraviaController(
             return secureBaseUrl
         }
 
-        if (TransportSecurityPolicy.allowInsecureDeviceProtocol("Sony IRCC-IP over http://")) {
+        if (TransportSecurityPolicy.allowInsecureDeviceProtocol("Sony IRCC-IP over http://", host = device.ip)) {
             return insecureBaseUrl
         }
         Log.w(TAG, "Sony pairing blocked: insecure fallback disabled and HTTPS unavailable")

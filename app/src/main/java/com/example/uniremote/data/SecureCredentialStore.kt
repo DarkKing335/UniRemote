@@ -8,6 +8,7 @@ import androidx.security.crypto.MasterKey
 private const val PREFS_NAME = "secure_credentials"
 private const val KEY_TLS_PRIV = "tls_priv_pkcs8"
 private const val KEY_TLS_CERT = "tls_cert_x509"
+private const val KEY_VIZIO_TLS_PIN_PREFIX = "vizio_tls_pin_"
 
 class SecureCredentialStore(context: Context) {
 
@@ -47,5 +48,17 @@ class SecureCredentialStore(context: Context) {
             .apply()
     }
 
+    fun getVizioTlsPin(deviceId: String): String? = prefs.getString(vizioTlsPinKey(deviceId), null)
+
+    fun putVizioTlsPin(deviceId: String, fingerprintSha256: String) {
+        prefs.edit().putString(vizioTlsPinKey(deviceId), fingerprintSha256).apply()
+    }
+
+    fun removeVizioTlsPin(deviceId: String) {
+        prefs.edit().remove(vizioTlsPinKey(deviceId)).apply()
+    }
+
     private fun tokenKey(deviceId: String): String = "token_$deviceId"
+
+    private fun vizioTlsPinKey(deviceId: String): String = "$KEY_VIZIO_TLS_PIN_PREFIX$deviceId"
 }
