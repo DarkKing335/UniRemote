@@ -144,5 +144,6 @@ ADB-connected TV may still not expose DLNA renderer.</string>
     <string name="macro_delete">Delete macro</string>
     <string name="macro_run">Run</string>
     <string name="macro_name_required">Please enter a macro name</string>
+    <string name="macro_name_duplicate">A macro with this name already exists</string>
     <string name="macro_keys_required">Please add at least one key</string>
 </resources>

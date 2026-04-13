@@ -17,6 +17,7 @@ import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.net.ConnectivityManager
 import android.net.LinkAddress
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -90,7 +91,7 @@ class ScreenMirrorService : Service() {
         private const val MIME_AVC = MediaFormat.MIMETYPE_VIDEO_AVC
 
         /** A short-lived access token for each mirroring session. */
-        const val SESSION_TTL_MS = 5 * 60 * 1000L
+        const val SESSION_TTL_MS = 15 * 60 * 1000L
 
         /** Delay before stopping encoder when the last client disconnects. */
         private const val ENCODER_IDLE_TIMEOUT_MS = 7_000L
@@ -116,6 +117,16 @@ class ScreenMirrorService : Service() {
 
         fun buildAuthorizationHeaderValue(token: String): String {
             return "Bearer $token"
+        }
+
+        fun buildAuthorizedEndpointUrl(publicEndpoint: String, token: String): String {
+            return runCatching {
+                Uri.parse(publicEndpoint)
+                    .buildUpon()
+                    .appendQueryParameter("token", token)
+                    .build()
+                    .toString()
+            }.getOrDefault(publicEndpoint)
         }
 
         fun maskToken(token: String): String {
@@ -280,7 +291,8 @@ class ScreenMirrorService : Service() {
         }
 
         val endpoint = buildStreamEndpointUrl(shownIp, secure = useTlsTransport)
-        notificationEndpoint = endpoint
+        val authorizedEndpoint = buildAuthorizedEndpointUrl(endpoint, credentials.token)
+        notificationEndpoint = authorizedEndpoint
         streamUrl = endpoint
 
         val serverStarted = runCatching {
@@ -302,7 +314,7 @@ class ScreenMirrorService : Service() {
 
         refreshNotification()
         onSessionStarted?.invoke(
-            notificationEndpoint ?: "",
+            endpoint,
             buildAuthorizationHeaderValue(credentials.token),
             maskToken(credentials.token),
             tlsFingerprintSha256 ?: "unknown"

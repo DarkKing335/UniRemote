@@ -24,9 +24,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.uniremote.R
 import com.example.uniremote.data.UserMacro
 import com.example.uniremote.network.TvKey
@@ -138,10 +140,13 @@ fun MacroManagerCard(
     }
 
     if (showManager) {
-        Dialog(onDismissRequest = { showManager = false }) {
+        Dialog(
+            onDismissRequest = { showManager = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .fillMaxWidth(0.92f)
                     .clip(RoundedCornerShape(28.dp))
                     .background(Brush.verticalGradient(listOf(Color(0xFF1A2029), Color(0xFF090D12))))
                     .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(28.dp))
@@ -190,9 +195,9 @@ fun MacroManagerSection(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     stringResource(R.string.macro_section_label),
                     style = MaterialTheme.typography.labelSmall,
@@ -202,13 +207,16 @@ fun MacroManagerSection(
                 )
                 Text(
                     stringResource(R.string.macro_section_title),
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = Color.White
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
+            Spacer(modifier = Modifier.width(12.dp))
             Row(
                 modifier = Modifier
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(999.dp))
                     .background(MaterialTheme.colorScheme.primaryContainer)
                     .clickable { editMacro = null; showDialog = true }
                     .padding(horizontal = 14.dp, vertical = 8.dp),
@@ -216,7 +224,13 @@ fun MacroManagerSection(
             ) {
                 Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Tạo mới", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text(
+                    "Tạo mới",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
         }
 
@@ -259,6 +273,7 @@ fun MacroManagerSection(
     if (showDialog) {
         MacroEditorDialog(
             initial   = editMacro,
+            existingMacros = macros,
             onDismiss = { showDialog = false },
             onSave    = { macro -> onSave(macro); showDialog = false },
             onDelete  = { id -> onDelete(id); showDialog = false }
@@ -343,23 +358,42 @@ fun UserMacroCard(
 @Composable
 fun MacroEditorDialog(
     initial:   UserMacro?,
+    existingMacros: List<UserMacro>,
     onDismiss: () -> Unit,
     onSave:    (UserMacro) -> Unit,
     onDelete:  (String) -> Unit
 ) {
     val isEditing = initial != null
-    var name             by remember { mutableStateOf(initial?.name ?: "") }
-    var description      by remember { mutableStateOf(initial?.description ?: "") }
-    var selectedIcon     by remember { mutableStateOf(initial?.icon ?: "play") }
-    var selectedKeys     by remember { mutableStateOf(initial?.keys ?: emptyList()) }
-    var showKeyPicker    by remember { mutableStateOf(false) }
-    var nameError        by remember { mutableStateOf(false) }
-    var keysError        by remember { mutableStateOf(false) }
+    val editingId = initial?.id
+    var name              by remember(editingId) { mutableStateOf(initial?.name ?: "") }
+    var description       by remember(editingId) { mutableStateOf(initial?.description ?: "") }
+    var selectedIcon      by remember(editingId) { mutableStateOf(initial?.icon ?: "play") }
+    var selectedKeys      by remember(editingId) { mutableStateOf(initial?.keys?.toList() ?: emptyList()) }
+    var showKeyPicker     by remember { mutableStateOf(false) }
+    var nameError         by remember { mutableStateOf(false) }
+    var duplicateNameError by remember { mutableStateOf(false) }
+    var keysError         by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
-    Dialog(onDismissRequest = onDismiss) {
+    val keyCategories = remember {
+        listOf(
+            "Điều hướng" to listOf(TvKey.UP, TvKey.DOWN, TvKey.LEFT, TvKey.RIGHT, TvKey.OK, TvKey.BACK, TvKey.HOME, TvKey.MENU, TvKey.EXIT),
+            "Âm lượng"   to listOf(TvKey.VOL_UP, TvKey.VOL_DOWN, TvKey.MUTE),
+            "Media"      to listOf(TvKey.PLAY, TvKey.PAUSE, TvKey.STOP, TvKey.FF, TvKey.RW, TvKey.NEXT, TvKey.PREV),
+            "Kênh"       to listOf(TvKey.CH_UP, TvKey.CH_DOWN),
+            "Nguồn"      to listOf(TvKey.SOURCE, TvKey.HDMI_1, TvKey.HDMI_2, TvKey.HDMI_3, TvKey.HDMI_4),
+            "Ứng dụng"   to listOf(TvKey.NETFLIX, TvKey.YOUTUBE, TvKey.SEARCH),
+            "Đặc biệt"   to listOf(TvKey.POWER, TvKey.SLEEP, TvKey.INFO, TvKey.GUIDE, TvKey.SETTINGS, TvKey.RED, TvKey.GREEN, TvKey.YELLOW, TvKey.BLUE),
+            "Số"         to listOf(TvKey.NUM_0, TvKey.NUM_1, TvKey.NUM_2, TvKey.NUM_3, TvKey.NUM_4, TvKey.NUM_5, TvKey.NUM_6, TvKey.NUM_7, TvKey.NUM_8, TvKey.NUM_9),
+        )
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
         Box(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(0.94f)
                 .clip(RoundedCornerShape(28.dp))
                 .background(Brush.verticalGradient(listOf(Color(0xFF1A2029), Color(0xFF090D12))))
                 .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(28.dp))
@@ -371,10 +405,15 @@ fun MacroEditorDialog(
                     style = MaterialTheme.typography.titleLarge, color = Color.White
                 )
                 OutlinedTextField(
-                    value = name, onValueChange = { name = it; nameError = false },
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        nameError = false
+                        duplicateNameError = false
+                    },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
                     label = { Text(stringResource(R.string.macro_name_hint), color = Color.White.copy(alpha = 0.6f)) },
-                    textStyle = LocalTextStyle.current.copy(color = Color.White), isError = nameError,
+                    textStyle = LocalTextStyle.current.copy(color = Color.White), isError = nameError || duplicateNameError,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
@@ -382,6 +421,7 @@ fun MacroEditorDialog(
                     )
                 )
                 if (nameError) Text(stringResource(R.string.macro_name_required), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                if (duplicateNameError) Text(stringResource(R.string.macro_name_duplicate), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
                 OutlinedTextField(
                     value = description, onValueChange = { description = it },
                     modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -431,14 +471,70 @@ fun MacroEditorDialog(
                 Row(
                     modifier = Modifier.clip(RoundedCornerShape(12.dp)).background(surface_container_high)
                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
-                        .clickable { showKeyPicker = true; keysError = false }
+                        .clickable { showKeyPicker = !showKeyPicker; keysError = false }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Filled.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.macro_add_key), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        if (showKeyPicker) "Ẩn danh sách phím" else stringResource(R.string.macro_add_key),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
+
+                if (showKeyPicker) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 260.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(surface_container_high)
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(14.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            keyCategories.forEach { (catLabel, keys) ->
+                                Text(
+                                    catLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    letterSpacing = 1.3.sp
+                                )
+                                FlowRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    keys.forEach { key ->
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(Color.White.copy(alpha = 0.04f))
+                                                .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
+                                                .clickable {
+                                                    selectedKeys = selectedKeys + key
+                                                    showKeyPicker = false
+                                                    keysError = false
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 7.dp)
+                                        ) {
+                                            Text(
+                                                tvKeyLabels[key] ?: key.name,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = Color.White.copy(alpha = 0.9f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (isEditing) {
                         OutlinedButton(
@@ -458,11 +554,18 @@ fun MacroEditorDialog(
                     ) { Text(stringResource(R.string.macro_cancel)) }
                     Button(
                         onClick = {
-                            nameError = name.isBlank(); keysError = selectedKeys.isEmpty()
-                            if (!nameError && !keysError) {
+                            val normalizedName = name.trim()
+                            nameError = normalizedName.isBlank()
+                            keysError = selectedKeys.isEmpty()
+                            duplicateNameError = existingMacros.any {
+                                it.id != editingId && it.name.equals(normalizedName, ignoreCase = true)
+                            }
+
+                            if (!nameError && !keysError && !duplicateNameError) {
                                 onSave(UserMacro(
                                     id = initial?.id ?: UUID.randomUUID().toString(),
-                                    name = name.trim(), description = description.trim(),
+                                    name = normalizedName,
+                                    description = description.trim(),
                                     icon = selectedIcon, keys = selectedKeys
                                 ))
                             }
@@ -472,13 +575,6 @@ fun MacroEditorDialog(
                 }
             }
         }
-    }
-
-    if (showKeyPicker) {
-        KeyPickerDialog(
-            onDismiss = { showKeyPicker = false },
-            onKeySelected = { key -> selectedKeys = selectedKeys + key; showKeyPicker = false; keysError = false }
-        )
     }
 
     if (showDeleteConfirm) {

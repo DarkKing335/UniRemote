@@ -43,12 +43,6 @@ class MirroringStreamCoordinator(
         val sessionToken = ScreenMirrorService.generateSessionToken()
 
         ScreenMirrorService.onSessionStarted = { publicEndpoint, authorizationHeader, maskedToken, tlsFp ->
-            _streamUrl.value = publicEndpoint
-            _authHint.value = maskedToken
-            _tlsFingerprint.value = tlsFp
-            authHeader = authorizationHeader
-            _isMirroring.value = true
-
             val token = authorizationHeader
                 .takeIf { it.startsWith("Bearer ", ignoreCase = true) }
                 ?.substringAfter(' ')
@@ -65,6 +59,12 @@ class MirroringStreamCoordinator(
                 publicEndpoint
             }
 
+            _streamUrl.value = authorizedEndpoint
+            _authHint.value = maskedToken
+            _tlsFingerprint.value = tlsFp
+            authHeader = authorizationHeader
+            _isMirroring.value = true
+
             onSessionReady?.invoke(authorizedEndpoint)
         }
 
@@ -79,7 +79,7 @@ class MirroringStreamCoordinator(
             putExtra(ScreenMirrorService.EXTRA_SESSION_TOKEN, sessionToken)
             putExtra(
                 ScreenMirrorService.EXTRA_CLIENT_RESTRICTION_MODE,
-                ScreenMirrorService.RESTRICTION_FIRST_CLIENT
+                ScreenMirrorService.RESTRICTION_SAME_SUBNET
             )
         }
 

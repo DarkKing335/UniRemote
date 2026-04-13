@@ -54,7 +54,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -114,17 +113,9 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val castPlaybackInfo by vm.castPlaybackInfo.collectAsStateWithLifecycle()
     val isMirroring      by vm.isMirroring.collectAsStateWithLifecycle()
     val mirrorStreamUrl  by vm.mirrorStreamUrl.collectAsStateWithLifecycle()
-
-    var selectedUdn  by remember { mutableStateOf<String?>(null) }
-    var selectedName by remember { mutableStateOf("") }
-
-    // Auto-select first renderer when list arrives
-    LaunchedEffect(castRenderers) {
-        if (selectedUdn == null && castRenderers.isNotEmpty()) {
-            selectedUdn  = castRenderers.first().udn
-            selectedName = castRenderers.first().name
-        }
-    }
+    val selectedUdn      by vm.selectedCastRendererUdn.collectAsStateWithLifecycle()
+    val selectedName     by vm.selectedCastRendererName.collectAsStateWithLifecycle()
+    var pendingMirrorRenderer by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     val context = LocalContext.current
     val clipboard = remember { context.getSystemService(ClipboardManager::class.java) }
@@ -145,7 +136,13 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
         }
         val mime  = context.contentResolver.getType(uri) ?: "image/*"
         val title = queryDisplayName(context, uri) ?: "image"
-        vm.castMedia(uri = uri, mimeType = mime, title = title, rendererUdn = udn, rendererName = selectedName)
+        vm.castMedia(
+            uri = uri,
+            mimeType = mime,
+            title = title,
+            rendererUdn = udn,
+            rendererName = selectedName ?: "Cast Device"
+        )
     }
 
     // ── File picker – video ────────────────────────────────────────────────────
@@ -158,7 +155,13 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
         }
         val mime  = context.contentResolver.getType(uri) ?: "video/*"
         val title = queryDisplayName(context, uri) ?: "video"
-        vm.castMedia(uri = uri, mimeType = mime, title = title, rendererUdn = udn, rendererName = selectedName)
+        vm.castMedia(
+            uri = uri,
+            mimeType = mime,
+            title = title,
+            rendererUdn = udn,
+            rendererName = selectedName ?: "Cast Device"
+        )
     }
 
     // ── MediaProjection launcher ───────────────────────────────────────────────
@@ -168,14 +171,18 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val mirrorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             result.data?.let {
+                val target = pendingMirrorRenderer
+                pendingMirrorRenderer = null
                 // Pass renderer so mirroring auto-pushes stream URL via selected cast protocol
                 vm.startMirroring(
                     resultCode   = result.resultCode,
                     data         = it,
-                    rendererUdn  = selectedUdn,
-                    rendererName = selectedName.ifBlank { null }
+                    rendererUdn  = target?.first ?: selectedUdn,
+                    rendererName = target?.second ?: selectedName
                 )
             }
+        } else {
+            pendingMirrorRenderer = null
         }
     }
 
@@ -201,52 +208,69 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     }
 
     fun doStartMirror() {
+        fun launchAppMirroringFlow() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                notifPermLauncher?.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                mirrorLauncher.launch(projectionManager.createScreenCaptureIntent())
+            }
+        }
+
         if (selectedUdn?.startsWith("gcast:") == true) {
             if (castState is CastState.Error) {
                 vm.stopCast()
             }
 
-            val intents = listOf(
-                Intent("android.settings.CAST_SETTINGS"),
-                Intent(Settings.ACTION_SETTINGS),
-                Intent("com.android.settings.WIFI_DISPLAY_SETTINGS")
-            )
+            val hasGoogleCastError = castState is CastState.Error
+            if (!hasGoogleCastError) {
+                val intents = listOf(
+                    Intent("android.settings.CAST_SETTINGS"),
+                    Intent(Settings.ACTION_SETTINGS),
+                    Intent("com.android.settings.WIFI_DISPLAY_SETTINGS")
+                )
 
-            val opened = intents.firstOrNull { intent ->
-                runCatching {
-                    context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                    true
-                }.getOrDefault(false)
-            } != null
+                val opened = intents.firstOrNull { intent ->
+                    runCatching {
+                        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                        true
+                    }.getOrDefault(false)
+                } != null
 
-            if (opened) {
-                Toast.makeText(
-                    context,
-                    "Đã mở Cast màn hình hệ thống cho Google Cast.",
-                    Toast.LENGTH_LONG
-                ).show()
-            } else {
-                Toast.makeText(
-                    context,
-                    "Thiết bị Google Cast không hỗ trợ luồng .h264 trực tiếp từ app.",
-                    Toast.LENGTH_LONG
-                ).show()
+                if (opened) {
+                    Toast.makeText(
+                        context,
+                        "Đã mở Cast màn hình hệ thống cho Google Cast.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    return
+                }
             }
-            return
+
+            val fallback = vm.findDlnaFallbackRenderer(selectedName)
+            if (fallback == null) {
+                Toast.makeText(
+                    context,
+                    "Google Cast không khả dụng và chưa tìm thấy DLNA để fallback.",
+                    Toast.LENGTH_LONG
+                ).show()
+                return
+            }
+
+            vm.selectCastRenderer(fallback.udn, fallback.name)
+            pendingMirrorRenderer = fallback.udn to fallback.name
+            Toast.makeText(
+                context,
+                "Google Cast không hỗ trợ/lỗi, đã chuyển sang DLNA để auto-push stream.",
+                Toast.LENGTH_LONG
+            ).show()
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notifPermLauncher?.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            mirrorLauncher.launch(projectionManager.createScreenCaptureIntent())
-        }
+        launchAppMirroringFlow()
     }
 
-    // Bind cast services + auto-scan when Cast screen opens
-    DisposableEffect(Unit) {
-        vm.bindCastService()
-        vm.refreshCastDevices()
-        onDispose { vm.unbindCastService() }
+    // Keep discovery warm globally so switching tabs does not reset cast list.
+    LaunchedEffect(Unit) {
+        vm.ensureCastDiscoveryStarted()
     }
 
     Scaffold(
@@ -372,8 +396,7 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                             isCasting  = isActivelyCasting,
                             enabled    = !isBusy,
                             onClick    = {
-                                selectedUdn  = renderer.udn
-                                selectedName = renderer.name
+                                vm.selectCastRenderer(renderer.udn, renderer.name)
                             }
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
@@ -428,8 +451,8 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 label   = if (isMirroring) "Dừng Mirroring" else "Screen Mirroring",
                 subLabel = when {
                     isMirroring -> "Đang phản chiếu màn hình"
-                    selectedUdn?.startsWith("gcast:") == true -> "Google Cast: dùng Cast màn hình hệ thống"
-                    hasRenderer -> "Phản chiếu lên: $selectedName"
+                    selectedUdn?.startsWith("gcast:") == true -> "Google Cast: ưu tiên Cast màn hình hệ thống"
+                    hasRenderer -> "Phản chiếu lên: ${selectedName ?: "Cast Device"}"
                     else        -> "Chọn thiết bị Cast trước"
                 },
                 active  = isMirroring,
@@ -451,7 +474,7 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 QuickActionTile(
                     icon     = Icons.Filled.Image,
                     label    = "Cast Image",
-                    subLabel = if (hasRenderer) selectedName else "Chọn TV trước",
+                    subLabel = if (hasRenderer) (selectedName ?: "Cast Device") else "Chọn TV trước",
                     active   = false,
                     modifier = Modifier.weight(1f),
                     onClick  = {
@@ -462,7 +485,7 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 QuickActionTile(
                     icon     = Icons.Filled.VideoFile,
                     label    = "Cast Video",
-                    subLabel = if (hasRenderer) selectedName else "Chọn TV trước",
+                    subLabel = if (hasRenderer) (selectedName ?: "Cast Device") else "Chọn TV trước",
                     active   = isCasting,
                     modifier = Modifier.weight(1f),
                     onClick  = {

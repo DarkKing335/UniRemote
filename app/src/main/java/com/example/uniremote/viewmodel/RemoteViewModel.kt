@@ -12,6 +12,7 @@ import com.example.uniremote.cast.CastPlaybackInfo
 import com.example.uniremote.cast.CastState
 import com.example.uniremote.data.AppPreferences
 import com.example.uniremote.data.DeviceRepository
+import com.example.uniremote.data.LastCastRenderer
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.data.UserMacro
 import com.example.uniremote.domain.AutoConnectUseCase
@@ -27,8 +28,10 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import java.util.Locale
+import com.uniremote.dlna.dlna.DlnaRenderer
 
 private const val STARTUP_DELAY_MS = 1_000L
+private const val CAST_REFRESH_INTERVAL_MS = 20_000L
 private const val TAG = "RemoteViewModel"
 
 private data class CoreAppSpec(
@@ -134,6 +137,12 @@ class RemoteViewModel @JvmOverloads constructor(
 
     val isMirroring: StateFlow<Boolean> = castManager.isMirroring
 
+    private val _selectedCastRendererUdn = MutableStateFlow<String?>(null)
+    val selectedCastRendererUdn: StateFlow<String?> = _selectedCastRendererUdn.asStateFlow()
+
+    private val _selectedCastRendererName = MutableStateFlow<String?>(null)
+    val selectedCastRendererName: StateFlow<String?> = _selectedCastRendererName.asStateFlow()
+
     private val _isTextInputActive = MutableStateFlow(false)
     val isTextInputActive: StateFlow<Boolean> = _isTextInputActive.asStateFlow()
 
@@ -162,6 +171,9 @@ class RemoteViewModel @JvmOverloads constructor(
     private var macroJob: Job? = null
     private var connectJob: Job? = null
     private var ssidJob: Job? = null
+    private var castRefreshJob: Job? = null
+    private var castDiscoveryStarted = false
+    private var restoredLastCastRenderer = false
 
     // Drag-to-DPad fallback accumulators for TVs that do not support mouse pointer protocol.
     private var mouseFallbackAccumX = 0f
@@ -182,6 +194,9 @@ class RemoteViewModel @JvmOverloads constructor(
 
             // NOTE: System.setProperty("user.home") has been moved to MainActivity.onCreate()
             // to ensure it is set before any controller is instantiated.
+
+            ensureCastDiscoveryStarted()
+            observeCastRendererAutoSelection()
 
             connectJob = viewModelScope.launch(Dispatchers.IO) {
                 // Init the software RSA key FIRST, on a background thread.
@@ -458,17 +473,72 @@ class RemoteViewModel @JvmOverloads constructor(
 
     // ── Cast (DLNA Media) ─────────────────────────────────────────────────────
 
-    /** Bind DLNA service when Cast screen becomes visible. */
-    fun bindCastService() = castManager.bind()
+    /** Starts discovery once and keeps it alive so switching tabs does not reset renderer list. */
+    fun ensureCastDiscoveryStarted() {
+        if (castDiscoveryStarted) return
+        castDiscoveryStarted = true
+        castManager.bind()
 
-    /** Unbind DLNA service when Cast screen is no longer visible. */
-    fun unbindCastService() = castManager.unbind()
+        // Warm discovery as soon as app starts, then keep refreshes running in background.
+        refreshCastDevicesInternal()
+        castRefreshJob = viewModelScope.launch {
+            while (true) {
+                delay(CAST_REFRESH_INTERVAL_MS)
+                refreshCastDevicesInternal()
+            }
+        }
+    }
+
+    /** Backward-compatible alias used by Cast screen. */
+    fun bindCastService() = ensureCastDiscoveryStarted()
+
+    /** Intentionally no-op: keep discovery alive across tab switches. */
+    fun unbindCastService() = Unit
 
     /** Re-run UPnP search for DLNA renderers. Also tries unicast to connected TV's IP. */
     fun refreshCastDevices() {
+        ensureCastDiscoveryStarted()
+        refreshCastDevicesInternal()
+    }
+
+    private fun refreshCastDevicesInternal() {
         // Pass the connected TV's IP as unicast hint — bypasses multicast routing issues
         castManager.setHintDeviceIp(connectedDevice.value?.ip)
         castManager.discoverDevices()
+    }
+
+    fun selectCastRenderer(rendererUdn: String, rendererName: String, persist: Boolean = true) {
+        val currentUdn = _selectedCastRendererUdn.value
+        val currentName = _selectedCastRendererName.value
+        if (currentUdn == rendererUdn && currentName == rendererName) {
+            return
+        }
+
+        castManager.selectRenderer(rendererUdn, rendererName)
+        _selectedCastRendererUdn.value = rendererUdn
+        _selectedCastRendererName.value = rendererName
+
+        if (persist) {
+            viewModelScope.launch {
+                prefs.saveLastCastRenderer(rendererUdn, rendererName)
+            }
+        }
+    }
+
+    /**
+     * For Google Cast mirroring fallback: pick a DLNA renderer, preferring same-TV name match.
+     */
+    fun findDlnaFallbackRenderer(preferredRendererName: String?): DlnaRenderer? {
+        val dlnaRenderers = castRenderers.value.filterNot { it.udn.startsWith("gcast:") }
+        if (dlnaRenderers.isEmpty()) return null
+
+        val preferred = preferredRendererName?.trim()?.lowercase(Locale.ROOT)
+        if (preferred.isNullOrBlank()) return dlnaRenderers.first()
+
+        return dlnaRenderers.firstOrNull { renderer ->
+            val candidate = renderer.name.trim().lowercase(Locale.ROOT)
+            candidate == preferred || candidate.contains(preferred) || preferred.contains(candidate)
+        } ?: dlnaRenderers.first()
     }
 
     /**
@@ -482,7 +552,7 @@ class RemoteViewModel @JvmOverloads constructor(
         rendererUdn: String,
         rendererName: String
     ) {
-        castManager.selectRenderer(rendererUdn, rendererName)
+        selectCastRenderer(rendererUdn, rendererName)
 
         val mediaUrl = uri.toString()
         if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
@@ -570,7 +640,7 @@ class RemoteViewModel @JvmOverloads constructor(
     ) {
         runCatching {
             if (!rendererUdn.isNullOrBlank() && !rendererName.isNullOrBlank()) {
-                castManager.selectRenderer(rendererUdn, rendererName)
+                selectCastRenderer(rendererUdn, rendererName)
 
                 if (rendererUdn.startsWith("gcast:")) {
                     _toastMessage.tryEmit(
@@ -628,8 +698,15 @@ class RemoteViewModel @JvmOverloads constructor(
         }
     }
 
-    fun saveMacro(macro: UserMacro) = viewModelScope.launch { prefs.saveMacro(macro) }
-    fun deleteMacro(macroId: String) = viewModelScope.launch { prefs.deleteMacro(macroId) }
+    fun saveMacro(macro: UserMacro) = viewModelScope.launch {
+        runCatching { prefs.saveMacro(macro) }
+            .onFailure { reportFailure("saveMacro", it, "Không thể lưu macro") }
+    }
+
+    fun deleteMacro(macroId: String) = viewModelScope.launch {
+        runCatching { prefs.deleteMacro(macroId) }
+            .onFailure { reportFailure("deleteMacro", it, "Không thể xóa macro") }
+    }
     fun runUserMacro(macroId: String) {
         userMacros.value.firstOrNull { it.id == macroId }?.let { runMacro(it.keys, macroId) }
     }
@@ -638,6 +715,7 @@ class RemoteViewModel @JvmOverloads constructor(
         macroJob?.cancel()
         connectJob?.cancel()
         ssidJob?.cancel()
+        castRefreshJob?.cancel()
         connectionManager.onCleared()
         stopScan()
         castManager.release()
@@ -760,5 +838,37 @@ class RemoteViewModel @JvmOverloads constructor(
         }
 
         _toastMessage.tryEmit("Không tìm thấy ${spec.displayName} trên TV này")
+    }
+
+    private fun observeCastRendererAutoSelection() {
+        viewModelScope.launch {
+            combine(castRenderers, prefs.lastCastRenderer) { renderers, saved ->
+                renderers to saved
+            }.collect { (renderers, saved) ->
+                if (renderers.isEmpty()) return@collect
+
+                if (!restoredLastCastRenderer && saved != null) {
+                    val restored = findMatchingCastRenderer(saved, renderers)
+                    if (restored != null) {
+                        selectCastRenderer(restored.udn, restored.name, persist = false)
+                        restoredLastCastRenderer = true
+                        return@collect
+                    }
+                }
+
+                if (_selectedCastRendererUdn.value == null) {
+                    val first = renderers.first()
+                    selectCastRenderer(first.udn, first.name, persist = false)
+                }
+            }
+        }
+    }
+
+    private fun findMatchingCastRenderer(
+        saved: LastCastRenderer,
+        renderers: List<DlnaRenderer>
+    ): DlnaRenderer? {
+        return renderers.firstOrNull { it.udn == saved.udn }
+            ?: renderers.firstOrNull { it.name.equals(saved.name, ignoreCase = true) }
     }
 }

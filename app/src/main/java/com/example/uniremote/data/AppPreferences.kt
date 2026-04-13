@@ -13,6 +13,11 @@ import com.google.gson.reflect.TypeToken
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "app_preferences")
 
+data class LastCastRenderer(
+    val udn: String,
+    val name: String
+)
+
 class AppPreferences(private val context: Context) {
     private val gson = Gson()
     private val secureStore = SecureCredentialStore(context)
@@ -29,6 +34,8 @@ class AppPreferences(private val context: Context) {
         private val KEY_AUTO_RECONNECT    = booleanPreferencesKey("auto_reconnect")
         private val KEY_USER_MACROS       = stringPreferencesKey("user_macros")
         private val KEY_KNOWN_DEVICES     = stringPreferencesKey("known_devices")
+        private val KEY_LAST_CAST_UDN     = stringPreferencesKey("last_cast_renderer_udn")
+        private val KEY_LAST_CAST_NAME    = stringPreferencesKey("last_cast_renderer_name")
 
         // Field separators – must NOT appear in device names/IPs/SSIDs
         private const val DEVICE_SEP  = "|||"  // between devices
@@ -51,6 +58,28 @@ class AppPreferences(private val context: Context) {
 
     suspend fun getAutoReconnectOnce(): Boolean {
         return context.dataStore.data.map { prefs -> prefs[KEY_AUTO_RECONNECT] ?: true }.first()
+    }
+
+    // ── Last cast renderer ───────────────────────────────────────────────────
+
+    val lastCastRenderer: Flow<LastCastRenderer?> = context.dataStore.data.map { prefs ->
+        val udn = prefs[KEY_LAST_CAST_UDN] ?: return@map null
+        val name = prefs[KEY_LAST_CAST_NAME] ?: return@map null
+        LastCastRenderer(udn = udn, name = name)
+    }
+
+    suspend fun saveLastCastRenderer(udn: String, name: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_LAST_CAST_UDN] = udn
+            prefs[KEY_LAST_CAST_NAME] = name
+        }
+    }
+
+    suspend fun clearLastCastRenderer() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(KEY_LAST_CAST_UDN)
+            prefs.remove(KEY_LAST_CAST_NAME)
+        }
     }
 
     // ── Legacy single last-device (used in ViewModel for LG pairing) ──────────
