@@ -27,11 +27,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.SubcomposeAsyncImage
 import com.example.uniremote.R
 import com.example.uniremote.data.UserMacro
 import com.example.uniremote.network.TvAppUiModel
@@ -43,6 +45,7 @@ import com.example.uniremote.ui.theme.*
 import com.example.uniremote.domain.ConnectionStatus
 import com.example.uniremote.viewmodel.RemoteViewModel
 import com.example.uniremote.ui.components.NavigationTab
+import com.example.uniremote.ui.image.AppIconCache
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Screen
@@ -347,6 +350,19 @@ private fun AppListEmpty(onSync: () -> Unit) {
 // Actual app grid (non-lazy so it can live inside a ScrollColumn)
 @Composable
 private fun AppGrid(apps: List<TvAppUiModel>, onLaunch: (String) -> Unit) {
+    val context = LocalContext.current
+    val iconLoader = remember(context) { AppIconCache.imageLoader(context) }
+
+    // Warm cache when app list updates so returning to this screen is snappier.
+    LaunchedEffect(apps) {
+        apps.forEach { app ->
+            val url = app.iconUrl?.trim().orEmpty()
+            if (url.isNotEmpty()) {
+                iconLoader.enqueue(AppIconCache.buildRequest(context, app.id, url))
+            }
+        }
+    }
+
     // Pick a deterministic tint color based on app name hash
     fun tintFor(name: String): Color {
         val hue = ((name.hashCode() and 0x7FFFFFFF) % 360).toFloat()
@@ -381,8 +397,10 @@ private fun AppGrid(apps: List<TvAppUiModel>, onLaunch: (String) -> Unit) {
                 rowApps.forEach { app ->
                     AppButton(
                         modifier = Modifier.weight(1f),
+                        appId    = app.id,
                         icon     = iconFor(app.name),
                         color    = tintFor(app.name),
+                        iconUrl  = app.iconUrl,
                         label    = app.name,
                         onClick  = { onLaunch(app.id) }
                     )
@@ -397,7 +415,22 @@ private fun AppGrid(apps: List<TvAppUiModel>, onLaunch: (String) -> Unit) {
 }
 
 @Composable
-fun AppButton(modifier: Modifier, icon: ImageVector, color: Color, label: String, onClick: () -> Unit = {}) {
+fun AppButton(
+    modifier: Modifier,
+    appId: String,
+    icon: ImageVector,
+    color: Color,
+    iconUrl: String? = null,
+    label: String,
+    onClick: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val iconLoader = remember(context) { AppIconCache.imageLoader(context) }
+    val imageRequest = remember(appId, iconUrl) {
+        val url = iconUrl?.trim().orEmpty()
+        if (url.isEmpty()) null else AppIconCache.buildRequest(context, appId, url)
+    }
+
     Column(
         modifier = modifier
             .aspectRatio(1f)
@@ -415,7 +448,26 @@ fun AppButton(modifier: Modifier, icon: ImageVector, color: Color, label: String
                 .background(Color(0x66262627)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(32.dp))
+            if (imageRequest != null) {
+                SubcomposeAsyncImage(
+                    model = imageRequest,
+                    imageLoader = iconLoader,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp),
+                    loading = {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = color.copy(alpha = 0.8f)
+                        )
+                    },
+                    error = {
+                        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(32.dp))
+                    }
+                )
+            } else {
+                Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(32.dp))
+            }
         }
         Spacer(modifier = Modifier.height(12.dp))
         Text(

@@ -40,7 +40,6 @@ import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.FolderOpen
@@ -61,6 +60,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -90,7 +90,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.uniremote.R
 import com.example.uniremote.cast.CastPlaybackInfo
 import com.example.uniremote.cast.CastState
-import com.example.uniremote.domain.ConnectionStatus
 import com.example.uniremote.ui.components.BottomNavBar
 import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.components.TopBar
@@ -108,20 +107,20 @@ import kotlin.math.roundToInt
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-private fun queryDisplayName(context: Context, uri: Uri): String? {
-    val projection = arrayOf(android.provider.OpenableColumns.DISPLAY_NAME)
-    return context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
-        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-        if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
-    }
-}
-
 internal fun handleNotificationPermissionResult(
     granted: Boolean,
     onGranted: () -> Unit,
     onDenied: () -> Unit
 ) {
     if (granted) onGranted() else onDenied()
+}
+
+private fun queryDisplayName(context: Context, uri: Uri): String? {
+    val projection = arrayOf(android.provider.OpenableColumns.DISPLAY_NAME)
+    return context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+        val idx = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && cursor.moveToFirst()) cursor.getString(idx) else null
+    }
 }
 
 private fun formatCastTime(ms: Long): String {
@@ -138,12 +137,12 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val castRenderers  by vm.castRenderers.collectAsStateWithLifecycle()
     val castState      by vm.castState.collectAsStateWithLifecycle()
     val castPlaybackInfo by vm.castPlaybackInfo.collectAsStateWithLifecycle()
-    val connectionStatus by vm.connectionStatus.collectAsStateWithLifecycle()
     val isMirroring    by vm.isMirroring.collectAsStateWithLifecycle()
     val mirrorStreamUrl by vm.mirrorStreamUrl.collectAsStateWithLifecycle()
     val mirrorAuthHint by vm.mirrorAuthHint.collectAsStateWithLifecycle()
     val mirrorTlsFingerprint by vm.mirrorTlsFingerprint.collectAsStateWithLifecycle()
 
+    var selectedMediaUrl     by remember { mutableStateOf("") }
     var selectedUri          by remember { mutableStateOf<Uri?>(null) }
     var selectedMime         by remember { mutableStateOf("") }
     var selectedName         by remember { mutableStateOf("") }
@@ -154,19 +153,22 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
     val haptic   = LocalHapticFeedback.current
     val clipboard = remember { context.getSystemService(ClipboardManager::class.java) }
 
-    // ── File picker (SAF — no extra storage permission needed) ──────────────
+    // ── File picker (SAF, no storage permission) ────────────────────────────
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         runCatching {
             context.contentResolver.takePersistableUriPermission(
-                uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
         }
-        selectedUri  = uri
-        selectedMime = context.contentResolver.getType(uri) ?: "video/mp4"
-        selectedName = queryDisplayName(context, uri) ?: "media_${System.currentTimeMillis()}"
+        selectedUri = uri
+        selectedMime = context.contentResolver.getType(uri) ?: "video/*"
+        selectedName = queryDisplayName(context, uri)
+            ?: uri.lastPathSegment
+            ?: "media_${System.currentTimeMillis()}"
     }
 
     // ── MediaProjection launcher ─────────────────────────────────────────────
@@ -240,11 +242,11 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                 MediaCastingSection(
                     castState           = castState,
                     playbackInfo        = castPlaybackInfo,
-                    hasConnectedDevice  = connectionStatus is ConnectionStatus.Connected,
                     renderers           = castRenderers,
                     selectedRendererUdn = selectedRendererUdn,
-                    selectedUri         = selectedUri,
-                    selectedName        = selectedName,
+                    selectedMediaUrl    = selectedMediaUrl,
+                    selectedFileName    = selectedName,
+                    hasSelectedFile     = selectedUri != null,
                     onScanClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         vm.refreshCastDevices()
@@ -253,12 +255,47 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
                         selectedRendererUdn  = udn
                         selectedRendererName = name
                     },
-                    onPickFile = { filePicker.launch(arrayOf("video/*", "image/*")) },
+                    onMediaUrlChange = {
+                        selectedMediaUrl = it
+                    },
+                    onPickFile = {
+                        filePicker.launch(arrayOf("video/*", "image/*"))
+                    },
                     onCast = {
-                        val uri = selectedUri ?: return@MediaCastingSection
                         val udn = selectedRendererUdn ?: return@MediaCastingSection
+                        val selectedLocalUri = selectedUri
+                        val mediaUrl = selectedMediaUrl.trim()
+                        val hasValidHttpUrl = mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")
+
+                        if (selectedLocalUri != null && !hasValidHttpUrl) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            vm.castMedia(
+                                uri = selectedLocalUri,
+                                mimeType = selectedMime,
+                                title = selectedName.ifBlank { "Media" },
+                                rendererUdn = udn,
+                                rendererName = selectedRendererName
+                            )
+                            return@MediaCastingSection
+                        }
+
+                        if (!hasValidHttpUrl) {
+                            Toast.makeText(
+                                context,
+                                context.getString(R.string.cast_enter_valid_http_url),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@MediaCastingSection
+                        }
+
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.castMedia(uri, selectedMime, selectedName, udn, selectedRendererName)
+                        vm.castMedia(
+                            uri = Uri.parse(mediaUrl),
+                            mimeType = "",
+                            title = mediaUrl.substringAfterLast('/').ifBlank { "Media" },
+                            rendererUdn = udn,
+                            rendererName = selectedRendererName
+                        )
                     },
                     onStop = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -356,13 +393,14 @@ fun CastScreen(vm: RemoteViewModel, onNavigate: (NavigationTab) -> Unit) {
 private fun MediaCastingSection(
     castState: CastState,
     playbackInfo: CastPlaybackInfo,
-    hasConnectedDevice: Boolean,
     renderers: List<DlnaRenderer>,
     selectedRendererUdn: String?,
-    selectedUri: Uri?,
-    selectedName: String,
+    selectedMediaUrl: String,
+    selectedFileName: String,
+    hasSelectedFile: Boolean,
     onScanClick: () -> Unit,
     onRendererSelect: (String, String) -> Unit,
+    onMediaUrlChange: (String) -> Unit,
     onPickFile: () -> Unit,
     onCast: () -> Unit,
     onStop: () -> Unit,
@@ -515,7 +553,41 @@ private fun MediaCastingSection(
             }
         }
 
-        // ── File picker card ─────────────────────────────────────────────
+        // ── URL input card (URL-only DLNA mode) ──────────────────────────
+        GlassCard {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    stringResource(R.string.cast_media_url),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    letterSpacing = 1.5.sp
+                )
+                OutlinedTextField(
+                    value = selectedMediaUrl,
+                    onValueChange = onMediaUrlChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isBusy,
+                    placeholder = {
+                        Text(stringResource(R.string.cast_media_url_placeholder))
+                    },
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            Icons.Filled.SyncAlt,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                )
+                Text(
+                    stringResource(R.string.cast_media_url_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // ── Local file card ─────────────────────────────────────────────
         GlassCard {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
@@ -524,70 +596,66 @@ private fun MediaCastingSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     letterSpacing = 1.5.sp
                 )
-                if (selectedUri != null) {
+
+                if (hasSelectedFile) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                RoundedCornerShape(10.dp)
+                            )
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
-                            Icons.Filled.VideoFile, null,
+                            Icons.Filled.VideoFile,
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            selectedName,
-                            style = MaterialTheme.typography.bodyMedium,
+                            selectedFileName.ifBlank { stringResource(R.string.cast_pick_file) },
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(
-                            onClick = { if (!isBusy) onPickFile() },
-                            modifier = Modifier.size(24.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.Edit, null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
                     }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
-                            .clickable(enabled = !isBusy) { onPickFile() }
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Filled.FolderOpen, null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            stringResource(R.string.cast_pick_file),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+                        .clickable(enabled = !isBusy) { onPickFile() }
+                        .padding(14.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.FolderOpen,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.cast_pick_file),
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
             }
         }
 
         // ── Active cast bar / Cast action button ─────────────────────────
-        if (isCasting && castState is CastState.Casting) {
+        if (castState is CastState.Casting) {
             ActiveCastBar(
                 title        = castState.title,
                 rendererName = castState.rendererName,
@@ -604,13 +672,14 @@ private fun MediaCastingSection(
                 onMuteToggle = onMuteToggle
             )
         } else {
-            val canCast  = hasConnectedDevice && selectedUri != null && selectedRendererUdn != null && !isDiscovering && !isBusy
+            val hasHttpUrl = selectedMediaUrl.startsWith("http://") || selectedMediaUrl.startsWith("https://")
+            val hasSource = hasHttpUrl || hasSelectedFile
+            val canCast  = hasSource && selectedRendererUdn != null && !isDiscovering && !isBusy
             val buttonLabel = when {
                 isSendingUri            -> stringResource(R.string.cast_preparing)
                 isStarting              -> stringResource(R.string.cast_starting)
-                !hasConnectedDevice     -> stringResource(R.string.cast_device_not_connected)
                 selectedRendererUdn == null -> stringResource(R.string.cast_select_tv_hint)
-                selectedUri         == null -> stringResource(R.string.cast_pick_file_hint)
+                !hasSource              -> stringResource(R.string.cast_pick_file_hint)
                 else -> stringResource(R.string.cast_cast_to)
             }
             GradientActionButton(

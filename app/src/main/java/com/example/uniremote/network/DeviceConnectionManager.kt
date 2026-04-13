@@ -186,8 +186,9 @@ class DeviceConnectionManager {
     suspend fun launchApp(appId: String) {
         withContext(Dispatchers.IO) {
             val primaryController = requireController()
+            val primaryIsGoogleTv = primaryController is GoogleTvController
             val primaryResult = runCatching { primaryController.launchApp(appId) }
-            if (primaryResult.isSuccess) return@withContext
+            if (primaryResult.isSuccess && !primaryIsGoogleTv) return@withContext
 
             val primaryError = primaryResult.exceptionOrNull()
             val device = _connectedDevice.value
@@ -212,6 +213,8 @@ class DeviceConnectionManager {
                 runCatching { adb.disconnect() }
                 if (launchedByAdb) return@withContext
             }
+
+            if (primaryResult.isSuccess) return@withContext
 
             throw (primaryError ?: IllegalStateException("Không thể mở ứng dụng $appId"))
         }

@@ -1,12 +1,11 @@
 package com.uniremote.dlna.dlna
 
+import android.util.Log
 import org.jupnp.android.AndroidUpnpService
 import org.jupnp.model.action.ActionInvocation
 import org.jupnp.model.meta.RemoteDevice
 import org.jupnp.model.meta.RemoteService
 import org.jupnp.model.meta.Service
-import org.jupnp.model.types.ServiceType
-import org.jupnp.model.types.UDADeviceType
 import org.jupnp.model.types.UDAServiceType
 import org.jupnp.registry.DefaultRegistryListener
 import org.jupnp.registry.Registry
@@ -22,6 +21,12 @@ import org.jupnp.support.renderingcontrol.callback.GetMute
 import org.jupnp.support.renderingcontrol.callback.GetVolume
 import org.jupnp.support.renderingcontrol.callback.SetMute
 import org.jupnp.support.renderingcontrol.callback.SetVolume
+import java.net.DatagramSocket
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class DlnaManager(
     private val onDevicesChanged: (List<DlnaRenderer>) -> Unit,
@@ -30,8 +35,18 @@ class DlnaManager(
     private val onVolume: (Int?, Boolean?) -> Unit = { _, _ -> }
 ) {
 
+    companion object {
+        private const val TAG = "DlnaManager"
+        private const val PLAY_AFTER_SET_URI_DELAY_MS = 180L
+        private const val PLAY_RETRY_DELAY_MS = 250L
+        private const val MAX_PLAY_RETRIES = 1
+    }
+
     private var upnpService: AndroidUpnpService? = null
     private val renderers = linkedMapOf<String, RemoteDevice>()
+    private val playScheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
+        Thread(runnable, "DlnaPlayScheduler").apply { isDaemon = true }
+    }
 
     private val registryListener = object : DefaultRegistryListener() {
         override fun remoteDeviceAdded(registry: Registry, device: RemoteDevice) {
@@ -78,44 +93,24 @@ class DlnaManager(
         onPlaybackStarted: () -> Unit = {},
         onFailure: (String) -> Unit = { onError(it) }
     ) {
-        val service = upnpService ?: return
+        val service = upnpService
+            ?: return onFailure("DLNA service is not ready. Please scan again and retry.")
         val renderer = renderers[rendererUdn]
             ?: return onFailure("Renderer not available")
 
-        val avTransport = findService(renderer, UDAServiceType("AVTransport"))
+        val avTransport = findServiceByType(renderer, "AVTransport")
             ?: return onFailure("Renderer does not expose AVTransport")
 
         val metadata = didlMetadata(title, mediaUrl)
-
-        service.controlPoint.execute(
-            object : SetAVTransportURI(avTransport, mediaUrl, metadata) {
-                override fun success(invocation: ActionInvocation<out Service<*, *>>) {
-                    onUriAccepted()
-                    service.controlPoint.execute(
-                        object : Play(avTransport) {
-                            override fun success(invocation: ActionInvocation<out Service<*, *>>) {
-                                onPlaybackStarted()
-                            }
-
-                            override fun failure(
-                                invocation: ActionInvocation<out Service<*, *>>,
-                                operation: org.jupnp.model.message.UpnpResponse,
-                                defaultMsg: String
-                            ) {
-                                onFailure("Play failed: $defaultMsg")
-                            }
-                        }
-                    )
-                }
-
-                override fun failure(
-                    invocation: ActionInvocation<out Service<*, *>>,
-                    operation: org.jupnp.model.message.UpnpResponse,
-                    defaultMsg: String
-                ) {
-                    onFailure("Set URI failed: $defaultMsg")
-                }
-            }
+        setUriAndPlay(
+            service = service,
+            avTransport = avTransport,
+            mediaUrl = mediaUrl,
+            metadata = metadata,
+            allowMetadataFallback = true,
+            onUriAccepted = onUriAccepted,
+            onPlaybackStarted = onPlaybackStarted,
+            onFailure = onFailure
         )
     }
 
@@ -123,7 +118,7 @@ class DlnaManager(
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn]
             ?: return
-        val avTransport = findService(renderer, UDAServiceType("AVTransport"))
+        val avTransport = findServiceByType(renderer, "AVTransport")
             ?: return
 
         service.controlPoint.execute(
@@ -142,7 +137,7 @@ class DlnaManager(
     fun play(rendererUdn: String) {
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn] ?: return
-        val avTransport = findService(renderer, UDAServiceType("AVTransport")) ?: return
+        val avTransport = findServiceByType(renderer, "AVTransport") ?: return
 
         service.controlPoint.execute(
             object : Play(avTransport) {
@@ -160,7 +155,7 @@ class DlnaManager(
     fun pause(rendererUdn: String) {
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn] ?: return
-        val avTransport = findService(renderer, UDAServiceType("AVTransport")) ?: return
+        val avTransport = findServiceByType(renderer, "AVTransport") ?: return
 
         service.controlPoint.execute(
             object : Pause(avTransport) {
@@ -178,7 +173,7 @@ class DlnaManager(
     fun seekTo(rendererUdn: String, targetMs: Long) {
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn] ?: return
-        val avTransport = findService(renderer, UDAServiceType("AVTransport")) ?: return
+        val avTransport = findServiceByType(renderer, "AVTransport") ?: return
         val target = formatUpnpTime(targetMs)
 
         service.controlPoint.execute(
@@ -197,7 +192,7 @@ class DlnaManager(
     fun fetchVolume(rendererUdn: String) {
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn] ?: return
-        val renderingControl = findService(renderer, UDAServiceType("RenderingControl")) ?: return
+        val renderingControl = findServiceByType(renderer, "RenderingControl") ?: return
 
         service.controlPoint.execute(
             object : GetVolume(renderingControl) {
@@ -241,7 +236,7 @@ class DlnaManager(
     fun setVolume(rendererUdn: String, level: Int) {
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn] ?: return
-        val renderingControl = findService(renderer, UDAServiceType("RenderingControl")) ?: return
+        val renderingControl = findServiceByType(renderer, "RenderingControl") ?: return
         val safeLevel = level.coerceIn(0, 100).toLong()
 
         service.controlPoint.execute(
@@ -264,7 +259,7 @@ class DlnaManager(
     fun setMute(rendererUdn: String, muted: Boolean) {
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn] ?: return
-        val renderingControl = findService(renderer, UDAServiceType("RenderingControl")) ?: return
+        val renderingControl = findServiceByType(renderer, "RenderingControl") ?: return
 
         service.controlPoint.execute(
             object : SetMute(renderingControl, muted) {
@@ -287,7 +282,7 @@ class DlnaManager(
         val service = upnpService ?: return
         val renderer = renderers[rendererUdn]
             ?: return
-        val avTransport = findService(renderer, UDAServiceType("AVTransport"))
+        val avTransport = findServiceByType(renderer, "AVTransport")
             ?: return
 
         service.controlPoint.execute(
@@ -323,12 +318,169 @@ class DlnaManager(
     }
 
     private fun isRenderer(device: RemoteDevice): Boolean {
-        return device.type == UDADeviceType("MediaRenderer") ||
-            device.findServices().any { it.serviceType.type == "AVTransport" }
+        return supportsAvTransportCasting(device)
     }
 
-    private fun findService(device: RemoteDevice, serviceType: ServiceType): RemoteService? {
-        return device.findService(serviceType)
+    private fun supportsAvTransportCasting(device: RemoteDevice): Boolean {
+        val avTransport = findServiceByType(device, "AVTransport") ?: return false
+        return runCatching { avTransport.getAction("SetAVTransportURI") != null }.getOrDefault(false)
+    }
+
+    fun resolveLocalIpForRenderer(rendererUdn: String): String? {
+        val renderer = renderers[rendererUdn] ?: return null
+        val rendererHost = runCatching {
+            renderer.identity.descriptorURL.host
+        }.getOrNull()?.takeIf { it.isNotBlank() } ?: return null
+
+        return runCatching {
+            DatagramSocket().use { socket ->
+                socket.connect(InetAddress.getByName(rendererHost), 9)
+                (socket.localAddress as? Inet4Address)
+                    ?.hostAddress
+                    ?.lowercase(Locale.US)
+            }
+        }.getOrNull()
+    }
+
+    private fun findServiceByType(device: RemoteDevice, type: String): RemoteService? {
+        val directMatch = device.findServices()
+            .firstOrNull { it.serviceType.type.equals(type, ignoreCase = true) }
+        if (directMatch is RemoteService) return directMatch
+
+        return runCatching { device.findService(UDAServiceType(type)) }.getOrNull()
+    }
+
+    private fun setUriAndPlay(
+        service: AndroidUpnpService,
+        avTransport: RemoteService,
+        mediaUrl: String,
+        metadata: String,
+        allowMetadataFallback: Boolean,
+        setUriRetryCount: Int = 0,
+        onUriAccepted: () -> Unit,
+        onPlaybackStarted: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        service.controlPoint.execute(
+            object : SetAVTransportURI(avTransport, mediaUrl, metadata) {
+                override fun success(invocation: ActionInvocation<out Service<*, *>>) {
+                    Log.i(TAG, "SetAVTransportURI success uriRetry=$setUriRetryCount")
+                    onUriAccepted()
+                    schedulePlayAfterSetUri(
+                        service = service,
+                        avTransport = avTransport,
+                        setUriRetryCount = setUriRetryCount,
+                        playRetryCount = 0,
+                        onPlaybackStarted = onPlaybackStarted,
+                        onFailure = onFailure
+                    )
+                }
+
+                override fun failure(
+                    invocation: ActionInvocation<out Service<*, *>>,
+                    operation: org.jupnp.model.message.UpnpResponse,
+                    defaultMsg: String
+                ) {
+                    if (allowMetadataFallback && metadata.isNotBlank()) {
+                        Log.w(
+                            TAG,
+                            "SetAVTransportURI failed, retrying with empty metadata uriRetry=${setUriRetryCount + 1}: $defaultMsg"
+                        )
+                        setUriAndPlay(
+                            service = service,
+                            avTransport = avTransport,
+                            mediaUrl = mediaUrl,
+                            metadata = "",
+                            allowMetadataFallback = false,
+                            setUriRetryCount = setUriRetryCount + 1,
+                            onUriAccepted = onUriAccepted,
+                            onPlaybackStarted = onPlaybackStarted,
+                            onFailure = onFailure
+                        )
+                    } else {
+                        Log.w(TAG, "SetAVTransportURI failed uriRetry=$setUriRetryCount: $defaultMsg")
+                        onFailure("Set URI failed: $defaultMsg")
+                    }
+                }
+            }
+        )
+    }
+
+    private fun schedulePlayAfterSetUri(
+        service: AndroidUpnpService,
+        avTransport: RemoteService,
+        setUriRetryCount: Int,
+        playRetryCount: Int,
+        onPlaybackStarted: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        val delayMs = if (playRetryCount == 0) {
+            PLAY_AFTER_SET_URI_DELAY_MS
+        } else {
+            PLAY_RETRY_DELAY_MS
+        }
+
+        playScheduler.schedule(
+            {
+                val current = upnpService
+                if (current == null || current !== service) {
+                    return@schedule
+                }
+
+                executePlay(
+                    service = service,
+                    avTransport = avTransport,
+                    onPlaybackStarted = {
+                        Log.i(TAG, "Play success uriRetry=$setUriRetryCount playRetry=$playRetryCount")
+                        onPlaybackStarted()
+                    },
+                    onFailure = { message ->
+                        if (playRetryCount < MAX_PLAY_RETRIES) {
+                            Log.w(
+                                TAG,
+                                "Play failed, scheduling retry uriRetry=$setUriRetryCount playRetry=${playRetryCount + 1}: $message"
+                            )
+                            schedulePlayAfterSetUri(
+                                service = service,
+                                avTransport = avTransport,
+                                setUriRetryCount = setUriRetryCount,
+                                playRetryCount = playRetryCount + 1,
+                                onPlaybackStarted = onPlaybackStarted,
+                                onFailure = onFailure
+                            )
+                        } else {
+                            Log.w(TAG, "Play failed uriRetry=$setUriRetryCount playRetry=$playRetryCount: $message")
+                            onFailure(message)
+                        }
+                    }
+                )
+            },
+            delayMs,
+            TimeUnit.MILLISECONDS
+        )
+    }
+
+    private fun executePlay(
+        service: AndroidUpnpService,
+        avTransport: RemoteService,
+        onPlaybackStarted: () -> Unit,
+        onFailure: (String) -> Unit
+    ) {
+        service.controlPoint.execute(
+            object : Play(avTransport) {
+                override fun success(invocation: ActionInvocation<out Service<*, *>>) {
+                    onPlaybackStarted()
+                }
+
+                override fun failure(
+                    invocation: ActionInvocation<out Service<*, *>>,
+                    operation: org.jupnp.model.message.UpnpResponse,
+                    defaultMsg: String
+                ) {
+                    onFailure("Play failed: $defaultMsg")
+                }
+            }
+        )
     }
 
     private fun didlMetadata(title: String, mediaUrl: String): String {

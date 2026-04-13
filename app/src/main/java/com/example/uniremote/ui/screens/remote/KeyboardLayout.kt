@@ -172,7 +172,7 @@ fun KeyboardLayout(vm: RemoteViewModel) {
                     !isTextInputActive -> showDialog = true
                     inputText.isBlank() -> { /* ignore empty */ }
                     else -> {
-                        vm.sendTextAndEnter(inputText)
+                        vm.sendText(inputText)
                         inputText = ""
                     }
                 }

@@ -296,13 +296,21 @@ class SonyBraviaController(
                 ?.optJSONArray(0) ?: return@withContext emptyList()
             (0 until result.length()).map { i ->
                 val app = result.getJSONObject(i)
+                val iconRaw = app.optString("icon").takeIf { it.isNotEmpty() }
                 TvApp(
                     id      = app.optString("uri"),
                     name    = app.optString("title"),
-                    iconUrl = app.optString("icon").takeIf { it.isNotEmpty() }
+                    iconUrl = normalizeIconUrl(activeBaseUrl, iconRaw)
                 )
             }
         }.getOrElse { emptyList() }
+    }
+
+    private fun normalizeIconUrl(baseUrl: String, raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        if (value.startsWith("http://") || value.startsWith("https://")) return value
+        return if (value.startsWith("/")) "$baseUrl$value" else "$baseUrl/$value"
     }
 
     override suspend fun launchApp(appId: String): Unit = withContext(Dispatchers.IO) {

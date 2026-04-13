@@ -28,6 +28,9 @@ android {
             buildConfigField("boolean", "ENABLE_INSECURE_DLNA_CASTING", "true")
         }
         release {
+            // DLNA relies on plaintext HTTP control/media on local LAN.
+            // Keep this enabled in release so casting works outside debug builds.
+            buildConfigField("boolean", "ENABLE_INSECURE_DLNA_CASTING", "true")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -65,6 +68,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation("dev.mobile:dadb:1.2.10")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("io.coil-kt:coil-compose:2.7.0")
 
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")

@@ -19,3 +19,11 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Keep DLNA and HTTP streaming stack stable in release builds.
+-keep class com.uniremote.dlna.dlna.** { *; }
+-keep class org.jupnp.** { *; }
+-keep class fi.iki.elonen.** { *; }
+
+-dontwarn org.jupnp.**
+-dontwarn fi.iki.elonen.**

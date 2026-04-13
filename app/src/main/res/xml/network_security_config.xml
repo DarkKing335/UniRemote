@@ -7,7 +7,8 @@
     secure alternatives before public release.
 -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <!-- DLNA control/media transport is HTTP on local network; cleartext must stay enabled. -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <!-- Trust system CAs for any HTTPS calls (e.g. Play Store, update checks) -->
             <certificates src="system" />

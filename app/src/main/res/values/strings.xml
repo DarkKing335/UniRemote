@@ -67,7 +67,7 @@
     <string name="cast_stop_mirroring">STOP MIRRORING</string>
     <string name="cast_streaming">STREAMING</string>
     <string name="cast_ready">READY</string>
-    <string name="cast_media_quick_desc">Push video or image files from your phone to TV instantly.</string>
+    <string name="cast_media_quick_desc">Cast via public media URL or push a local video/image file from your phone to TV.</string>
     <string name="cast_mirroring_realtime_desc">Realtime full-screen mirroring tuned for the lowest possible delay.</string>
     <string name="cast_wifi_hint">Keep both devices on the same Wi-Fi network</string>
     <string name="cast_default_device">TV</string>
@@ -87,11 +87,16 @@
     <string name="cast_preparing">PREPARING…</string>
     <string name="cast_starting">STARTING PLAYBACK…</string>
     <string name="cast_no_renderers">No DLNA TVs found on this network.
-Tap Scan to search again.</string>
+Tap Scan to search again.
+ADB-connected TV may still not expose DLNA renderer.</string>
     <string name="cast_searching_renderers">Searching for DLNA TVs on your network…</string>
     <string name="cast_notification_permission_denied">Notification permission denied. Screen mirroring was not started.</string>
     <string name="cast_pick_file">Pick a video or image</string>
     <string name="cast_media_file">MEDIA FILE</string>
+    <string name="cast_media_url">MEDIA URL</string>
+    <string name="cast_media_url_placeholder">https://example.com/video.mp4</string>
+    <string name="cast_media_url_hint">Use a public HTTP(S) URL, or leave this blank and pick a local file below.</string>
+    <string name="cast_enter_valid_http_url">Enter a valid HTTP(S) media URL</string>
     <string name="cast_cast_to">CAST TO TV</string>
     <string name="cast_stop">STOP CASTING</string>
     <string name="cast_error_prefix">Cast error: %1$s</string>

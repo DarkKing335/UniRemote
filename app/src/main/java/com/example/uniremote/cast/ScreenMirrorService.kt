@@ -25,6 +25,7 @@ import android.util.Log
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import com.example.uniremote.R
+import com.example.uniremote.network.TransportSecurityPolicy
 import com.example.uniremote.network.SoftwareTlsKey
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
@@ -108,8 +109,9 @@ class ScreenMirrorService : Service() {
 
         fun generateSessionToken(): String = StreamSessionAccessController.generateSessionToken()
 
-        fun buildStreamEndpointUrl(ip: String): String {
-            return "https://$ip:$STREAM_PORT$STREAM_PATH"
+        fun buildStreamEndpointUrl(ip: String, secure: Boolean): String {
+            val scheme = if (secure) "https" else "http"
+            return "$scheme://$ip:$STREAM_PORT$STREAM_PATH"
         }
 
         fun buildAuthorizationHeaderValue(token: String): String {
@@ -264,14 +266,20 @@ class ScreenMirrorService : Service() {
             }
         )
 
-        val tlsConfigured = configureTransportSecurity(server)
-        if (!tlsConfigured) {
-            Log.e(TAG, "Aborting session because strict HTTPS transport is unavailable")
+        // For DLNA compatibility, prefer plaintext HTTP whenever insecure LAN transport is enabled.
+        val useTlsTransport = !TransportSecurityPolicy.allowInsecureDlnaCasting()
+        val tlsConfigured = if (useTlsTransport) {
+            configureTransportSecurity(server)
+        } else {
+            false
+        }
+        if (useTlsTransport && !tlsConfigured) {
+            Log.e(TAG, "Aborting session because HTTPS transport is required but unavailable")
             stopSelf()
             return
         }
 
-        val endpoint = buildStreamEndpointUrl(shownIp)
+        val endpoint = buildStreamEndpointUrl(shownIp, secure = useTlsTransport)
         notificationEndpoint = endpoint
         streamUrl = endpoint
 
@@ -301,7 +309,7 @@ class ScreenMirrorService : Service() {
         )
         Log.i(
             TAG,
-            "Mirroring session started. endpoint=$notificationEndpoint secure=true ttlMs=$SESSION_TTL_MS tokenPrefix=${credentials.token.take(4)}**** restriction=$restrictionMode prefix=$networkPrefix tlsFp=${tlsFingerprintSha256?.take(12)}..."
+            "Mirroring session started. endpoint=$notificationEndpoint secure=$useTlsTransport ttlMs=$SESSION_TTL_MS tokenPrefix=${credentials.token.take(4)}**** restriction=$restrictionMode prefix=$networkPrefix tlsFp=${tlsFingerprintSha256?.take(12)}..."
         )
     }
 
@@ -860,11 +868,11 @@ class ScreenMirrorService : Service() {
                 )
             }
 
-            if (session.method != Method.GET) {
+            if (session.method != Method.GET && session.method != Method.HEAD) {
                 return newFixedLengthResponse(
                     Response.Status.METHOD_NOT_ALLOWED,
                     MIME_PLAINTEXT,
-                    "Only GET allowed"
+                    "Only GET and HEAD allowed"
                 )
             }
 
@@ -894,10 +902,25 @@ class ScreenMirrorService : Service() {
                 )
             }
 
-            return openClientStream(clientIp)
+            val transferMode = session.headers["transfermode.dlna.org"]
+                ?: session.headers["TransferMode.DLNA.ORG"]
+
+            if (session.method == Method.HEAD) {
+                return newFixedLengthResponse(Response.Status.OK, "video/avc", "").apply {
+                    addHeader("Cache-Control", "no-store")
+                    addHeader("Connection", "close")
+                    addHeader("Pragma", "no-cache")
+                    addHeader("Accept-Ranges", "none")
+                    if (!transferMode.isNullOrBlank()) {
+                        addHeader("TransferMode.DLNA.ORG", transferMode)
+                    }
+                }
+            }
+
+            return openClientStream(clientIp, transferMode)
         }
 
-        private fun openClientStream(clientIp: String?): Response {
+        private fun openClientStream(clientIp: String?, transferMode: String?): Response {
             val clientId = UUID.randomUUID().toString().take(8)
             val queue = ArrayBlockingQueue<ByteArray>(64)
             val output = PipedOutputStream()
@@ -944,6 +967,10 @@ class ScreenMirrorService : Service() {
                 addHeader("Cache-Control", "no-store")
                 addHeader("Connection", "close")
                 addHeader("Pragma", "no-cache")
+                addHeader("Accept-Ranges", "none")
+                if (!transferMode.isNullOrBlank()) {
+                    addHeader("TransferMode.DLNA.ORG", transferMode)
+                }
             }
         }
 
@@ -974,6 +1001,8 @@ class ScreenMirrorService : Service() {
                 val bearer = authHeader.substringAfter(' ').trim()
                 if (bearer.isNotBlank()) return bearer
             }
+            val tokenParam = session.parameters["token"]?.firstOrNull()?.trim()
+            if (!tokenParam.isNullOrBlank()) return tokenParam
             return null
         }
     }

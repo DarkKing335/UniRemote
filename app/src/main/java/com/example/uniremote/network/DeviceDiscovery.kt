@@ -66,6 +66,7 @@ class DeviceDiscovery(private val context: Context) {
     fun discover(): Flow<List<TvDevice>> = callbackFlow {
         val discovered       = java.util.concurrent.ConcurrentHashMap<String, TvDevice>()
         val serviceIndex     = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val canonicalIndex   = java.util.concurrent.ConcurrentHashMap<String, String>()
         val serviceRefCount  = java.util.concurrent.ConcurrentHashMap<String, Int>()
         val discoveryScore   = java.util.concurrent.ConcurrentHashMap<String, Int>()
         val listeners        = mutableListOf<NsdManager.DiscoveryListener>()
@@ -73,6 +74,20 @@ class DeviceDiscovery(private val context: Context) {
 
         fun serviceIdentity(serviceType: String?, serviceName: String?): String {
             return "${serviceType ?: "unknown"}|${serviceName ?: ""}"
+        }
+
+        fun canonicalIdentity(ip: String): String {
+            return ip
+        }
+
+        fun readableNameQuality(name: String): Int {
+            val trimmed = name.trim()
+            var score = 100
+            if (trimmed.length > 28) score -= 20
+            if (Regex("[0-9a-fA-F]{12,}").containsMatchIn(trimmed)) score -= 40
+            if (trimmed.contains("_")) score -= 8
+            if (trimmed.contains("-")) score -= 5
+            return score
         }
 
         fun candidateScore(serviceType: String, brand: TvBrand, port: Int): Int {
@@ -107,7 +122,10 @@ class DeviceDiscovery(private val context: Context) {
             val next = (serviceRefCount[deviceId] ?: 1) - 1
             if (next <= 0) {
                 serviceRefCount.remove(deviceId)
-                discovered.remove(deviceId)
+                val removed = discovered.remove(deviceId)
+                if (removed != null) {
+                    canonicalIndex.remove(canonicalIdentity(removed.ip), deviceId)
+                }
                 discoveryScore.remove(deviceId)
             } else {
                 serviceRefCount[deviceId] = next
@@ -146,7 +164,7 @@ class DeviceDiscovery(private val context: Context) {
                     val name = svcInfo.serviceName ?: ip
                     val mac  = svcInfo.attributes["mac"]
                         ?.let { String(it) } ?: ""
-                    val id   = DeviceIdUtil.stableId(mac = mac, ip = ip, name = name)
+                    val provisionalId = DeviceIdUtil.stableId(mac = mac, ip = ip, name = name)
                     val serviceType = svcInfo.serviceType ?: task.info.serviceType ?: "unknown"
                     val identity = serviceIdentity(serviceType, svcInfo.serviceName ?: task.info.serviceName)
 
@@ -160,6 +178,9 @@ class DeviceDiscovery(private val context: Context) {
                         name.contains("amazon", ignoreCase = true) -> TvBrand.FIRE_TV
                         else -> brand
                     }
+
+                    val canonicalKey = canonicalIdentity(ip)
+                    val id = canonicalIndex.putIfAbsent(canonicalKey, provisionalId) ?: provisionalId
 
                     val device = TvDevice(
                         id    = id,
@@ -181,8 +202,15 @@ class DeviceDiscovery(private val context: Context) {
                     }
 
                     val previousScore = discoveryScore[id] ?: Int.MIN_VALUE
-                    if (!discovered.containsKey(id) || score >= previousScore) {
-                        discovered[id] = device
+                    val existing = discovered[id]
+                    val shouldReplace = when {
+                        existing == null -> true
+                        score > previousScore -> true
+                        score == previousScore && readableNameQuality(device.name) > readableNameQuality(existing.name) -> true
+                        else -> false
+                    }
+                    if (shouldReplace) {
+                        discovered[id] = device.copy(id = id)
                         discoveryScore[id] = score
                     }
                     trySend(discovered.values.toList())

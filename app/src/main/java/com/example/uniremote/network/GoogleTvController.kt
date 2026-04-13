@@ -33,7 +33,7 @@ enum class PairingState { IDLE, CONNECTING, WAITING_FOR_PIN, VERIFYING_PIN, PAIR
 
 // ── Internal control commands ─────────────────────────────────────────────────
 private sealed class CtrlCmd {
-    data class Key(val code: Int) : CtrlCmd()
+    data class Payload(val bytes: ByteArray) : CtrlCmd()
     object Exit : CtrlCmd()
 }
 
@@ -76,6 +76,8 @@ class GoogleTvController(
     private var controlJob: Job? = null
     // @Volatile: written from control session coroutine, read from VM coroutines
     @Volatile private var connected = false
+    @Volatile private var imeCounter = 0
+    @Volatile private var imeFieldCounter = 0
 
     // Controller-owned scope for the session loop — cancelled in disconnect().
     private val controllerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -272,7 +274,148 @@ class GoogleTvController(
 
     private fun msgAck()    = byteArrayOf(0x12, 0x03, 0x08, (-18).toByte(), 0x04)
     private fun msgPong()   = byteArrayOf(0x4A, 0x02, 0x08, 0x19)
-    private fun msgKey(k: Int) = byteArrayOf(0x52, 0x04, 0x08, k.toByte(), 0x10, 0x03)
+
+    // RemoteMessage protobuf helpers
+    private fun rmVarint(value: Int): ByteArray {
+        val out = ArrayList<Byte>(5)
+        var v = value
+        while (v and 0x7F.inv() != 0) {
+            out.add(((v and 0x7F) or 0x80).toByte())
+            v = v ushr 7
+        }
+        out.add((v and 0x7F).toByte())
+        return out.toByteArray()
+    }
+
+    private fun rmTag(fieldNumber: Int, wireType: Int): ByteArray =
+        rmVarint((fieldNumber shl 3) or wireType)
+
+    private fun rmVarintField(fieldNumber: Int, value: Int): ByteArray =
+        rmTag(fieldNumber, 0) + rmVarint(value)
+
+    private fun rmLenField(fieldNumber: Int, data: ByteArray): ByteArray =
+        rmTag(fieldNumber, 2) + rmVarint(data.size) + data
+
+    private fun rmStringField(fieldNumber: Int, value: String): ByteArray =
+        rmLenField(fieldNumber, value.toByteArray(Charsets.UTF_8))
+
+    private fun msgKey(keyCode: Int): ByteArray {
+        // remote_key_inject (field 10)
+        // RemoteKeyInject: key_code=field1, direction=field2 (SHORT=3)
+        val inner = rmVarintField(1, keyCode) + rmVarintField(2, 3)
+        return rmLenField(10, inner)
+    }
+
+    private fun msgImeBatchEdit(text: String, counter: Int, fieldCounter: Int): ByteArray {
+        // remote_ime_batch_edit (field 21)
+        // RemoteImeObject: start/end = text.length-1 (Python androidtvremote2 behavior)
+        val cursorPos = (text.length - 1).coerceAtLeast(0)
+        val imeObject =
+            rmVarintField(1, cursorPos) +
+                rmVarintField(2, cursorPos) +
+                rmStringField(3, text)
+
+        // RemoteEditInfo: insert=1, text_field_status=imeObject
+        val editInfo = rmVarintField(1, 1) + rmLenField(2, imeObject)
+
+        // RemoteImeBatchEdit: ime_counter, field_counter, repeated edit_info
+        val batch =
+            rmVarintField(1, counter) +
+                rmVarintField(2, fieldCounter) +
+                rmLenField(3, editInfo)
+
+        return rmLenField(21, batch)
+    }
+
+    private fun msgLaunchApp(appLink: String): ByteArray {
+        // remote_app_link_launch_request (field 90)
+        val launch = rmStringField(1, appLink)
+        return rmLenField(90, launch)
+    }
+
+    private fun readVarint(data: ByteArray, start: Int): Pair<Long, Int>? {
+        var result = 0L
+        var shift = 0
+        var i = start
+        while (i < data.size) {
+            val b = data[i++].toLong() and 0xFF
+            result = result or ((b and 0x7F) shl shift)
+            if (b and 0x80L == 0L) return Pair(result, i - start)
+            shift += 7
+            if (shift >= 64) return null
+        }
+        return null
+    }
+
+    private fun updateImeCountersFromBatchEdit(payload: ByteArray) {
+        var i = 0
+        var nextImeCounter: Int? = null
+        var nextFieldCounter: Int? = null
+
+        while (i < payload.size) {
+            val (tag, tagLen) = readVarint(payload, i) ?: break
+            i += tagLen
+            val field = (tag shr 3).toInt()
+            val wire = (tag and 0x7L).toInt()
+
+            when (wire) {
+                0 -> {
+                    val (value, len) = readVarint(payload, i) ?: break
+                    i += len
+                    when (field) {
+                        1 -> nextImeCounter = value.toInt()
+                        2 -> nextFieldCounter = value.toInt()
+                    }
+                }
+                2 -> {
+                    val (len, lenLen) = readVarint(payload, i) ?: break
+                    i += lenLen + len.toInt()
+                }
+                1 -> i += 8
+                5 -> i += 4
+                else -> break
+            }
+        }
+
+        if (nextImeCounter != null) imeCounter = nextImeCounter
+        if (nextFieldCounter != null) imeFieldCounter = nextFieldCounter
+    }
+
+    private fun handleInboundControlMessage(payload: ByteArray): Boolean {
+        var i = 0
+        var shouldPong = false
+
+        while (i < payload.size) {
+            val (tag, tagLen) = readVarint(payload, i) ?: break
+            i += tagLen
+            val field = (tag shr 3).toInt()
+            val wire = (tag and 0x7L).toInt()
+
+            when (wire) {
+                0 -> {
+                    val (_, len) = readVarint(payload, i) ?: break
+                    i += len
+                }
+                2 -> {
+                    val (len, lenLen) = readVarint(payload, i) ?: break
+                    i += lenLen
+                    val dataLen = len.toInt()
+                    if (i + dataLen > payload.size) break
+                    val fieldBytes = payload.copyOfRange(i, i + dataLen)
+                    if (field == 8) {
+                        shouldPong = true
+                    } else if (field == 21) {
+                        updateImeCountersFromBatchEdit(fieldBytes)
+                    }
+                    i += dataLen
+                }
+                1 -> i += 8
+                5 -> i += 4
+                else -> break
+            }
+        }
+        return shouldPong
+    }
 
     // ── Pairing flow ──────────────────────────────────────────────────────────
 
@@ -352,6 +495,8 @@ class GoogleTvController(
             val ready = withTimeoutOrNull(15_000L) { readyDeferred.await() } ?: false
             if (ready) {
                 connected = true
+                imeCounter = 0
+                imeFieldCounter = 0
                 Log.i(TAG, "Control session started: ${device.ip}:$CONTROL_PORT")
             } else {
                 controlJob?.cancel()
@@ -388,7 +533,9 @@ class GoogleTvController(
                 while (isActive) {
                     try {
                         val msg = recv(sock)
-                        if (msg.isNotEmpty() && msg[0].toInt() and 0xFF == 0x42) send(sock, msgPong())
+                        if (msg.isNotEmpty() && handleInboundControlMessage(msg)) {
+                            send(sock, msgPong())
+                        }
                     } catch (e: java.net.SocketException) {
                         break
                     } catch (e: Exception) {
@@ -400,7 +547,7 @@ class GoogleTvController(
             while (isActive) {
                 val cmd = cmdChannel.receive() // Suspends efficiently
                 when (cmd) {
-                    is CtrlCmd.Key -> send(sock, msgKey(cmd.code))
+                    is CtrlCmd.Payload -> send(sock, cmd.bytes)
                     CtrlCmd.Exit   -> {
                         receiverJob.cancel()
                         break
@@ -461,11 +608,19 @@ class GoogleTvController(
                 else           -> { Log.w(TAG, "No mapping for $key");          return }
             }
         }
-        cmdChannel.trySend(CtrlCmd.Key(code))
+        cmdChannel.send(CtrlCmd.Payload(msgKey(code)))
     }
 
     override suspend fun sendText(text: String) {
         if (text.isBlank()) return
+
+        // Prefer native Google TV IME pipeline when we have the latest IME counters.
+        // This avoids firmware/IME keycode mapping bugs where alphabetic input can degrade.
+        val imeReady = (imeCounter != 0 || imeFieldCounter != 0)
+        if (connected && imeReady) {
+            cmdChannel.send(CtrlCmd.Payload(msgImeBatchEdit(text, imeCounter, imeFieldCounter)))
+            return
+        }
 
         // Reliable path: ADB text injection when available. Some Google TV builds
         // map remote key-inject letters incorrectly in search IME (e.g. always 'A').
@@ -483,6 +638,13 @@ class GoogleTvController(
 
         if (injectedByAdb) return
 
+        // Last-resort native IME send even without counters.
+        // Some devices still accept counter=0 updates.
+        if (connected) {
+            cmdChannel.send(CtrlCmd.Payload(msgImeBatchEdit(text, imeCounter, imeFieldCounter)))
+            return
+        }
+
         // Do not degrade to keycode injection for alphabetic text.
         // On several Google TV firmware/IME combinations this path maps letters
         // incorrectly (commonly all become 'A'). Surface an actionable error instead.
@@ -498,7 +660,7 @@ class GoogleTvController(
                 ch in 'a'..'z' -> 29 + (ch - 'a')
                 ch in 'A'..'Z' -> {
                     // Send SHIFT + lowercase equivalent for uppercase characters
-                    cmdChannel.trySend(CtrlCmd.Key(59))  // KEYCODE_SHIFT_LEFT
+                    cmdChannel.send(CtrlCmd.Payload(msgKey(59)))  // KEYCODE_SHIFT_LEFT
                     29 + (ch - 'A')
                 }
                 ch == ' '      -> 62
@@ -506,7 +668,7 @@ class GoogleTvController(
                 ch == '\b'     -> 67
                 else           -> continue
             }
-            cmdChannel.trySend(CtrlCmd.Key(code))
+            cmdChannel.send(CtrlCmd.Payload(msgKey(code)))
             delay(50)
         }
     }
@@ -514,9 +676,13 @@ class GoogleTvController(
     override suspend fun getInstalledApps(): List<TvApp> = emptyList()
 
     override suspend fun launchApp(appId: String) {
-        // The Google TV Remote Protocol does not natively support launching apps by package name.
-        // Surface this as an unsupported operation so the ViewModel can show an informative message.
-        throw UnsupportedOperationException("Google TV Remote Protocol không hỗ trợ mở app trực tiếp.")
+        if (!connected) {
+            throw IllegalStateException("Google TV chưa kết nối")
+        }
+        // Android TV Remote v2 supports app-link launch.
+        // Package IDs are mapped to market://launch?id=<package>.
+        val appLink = if (appId.contains("://")) appId else "market://launch?id=$appId"
+        cmdChannel.send(CtrlCmd.Payload(msgLaunchApp(appLink)))
     }
 
     override suspend fun moveMouse(dx: Float, dy: Float) {

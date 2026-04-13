@@ -255,14 +255,22 @@ class SamsungTvController(
                 val data  = json.getJSONArray("data")
                 (0 until data.length()).map { i ->
                     val app = data.getJSONObject(i)
+                    val iconRaw = app.optString("iconURI").takeIf { it.isNotEmpty() }
                     TvApp(
                         id      = app.optString("appId"),
                         name    = app.optString("name"),
-                        iconUrl = app.optString("iconURI").takeIf { it.isNotEmpty() }
+                        iconUrl = normalizeIconUrl(baseUrl, iconRaw)
                     )
                 }
             }
         }.getOrElse { emptyList() }
+    }
+
+    private fun normalizeIconUrl(baseUrl: String, raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        if (value.startsWith("http://") || value.startsWith("https://")) return value
+        return if (value.startsWith("/")) "$baseUrl$value" else "$baseUrl/$value"
     }
 
     override suspend fun launchApp(appId: String): Unit = withContext(Dispatchers.IO) {

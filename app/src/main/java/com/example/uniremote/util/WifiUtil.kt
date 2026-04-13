@@ -26,6 +26,7 @@ object WifiUtil {
      * Requires permissions:
      *  - ACCESS_WIFI_STATE         (always)
      *  - ACCESS_FINE_LOCATION      (Android 8.0–11 via WifiManager)
+    *  - NEARBY_WIFI_DEVICES       (Android 13+)
      *  - ACCESS_NETWORK_STATE      (Android 10+ via ConnectivityManager)
      */
     fun getCurrentSsid(context: Context): String? {

@@ -259,14 +259,23 @@ class LgWebOsController(
     override suspend fun getInstalledApps(): List<TvApp> {
         val resp = request("ssap://com.webos.applicationManager/listApps") ?: return emptyList()
         val apps = resp.optJSONObject("payload")?.optJSONArray("apps") ?: return emptyList()
+        val baseUrl = "http://${device.ip}:${device.port}"
         return (0 until apps.length()).map { i ->
             val app = apps.getJSONObject(i)
+            val iconRaw = app.optString("icon").takeIf { it.isNotEmpty() }
             TvApp(
                 id      = app.optString("id"),
                 name    = app.optString("title"),
-                iconUrl = app.optString("icon").takeIf { it.isNotEmpty() }
+                iconUrl = normalizeIconUrl(baseUrl, iconRaw)
             )
         }
+    }
+
+    private fun normalizeIconUrl(baseUrl: String, raw: String?): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        if (value.startsWith("http://") || value.startsWith("https://")) return value
+        return if (value.startsWith("/")) "$baseUrl$value" else "$baseUrl/$value"
     }
 
     override suspend fun launchApp(appId: String) {

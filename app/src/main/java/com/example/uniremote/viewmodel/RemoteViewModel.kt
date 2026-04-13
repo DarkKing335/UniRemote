@@ -3,14 +3,13 @@ package com.example.uniremote.viewmodel
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.uniremote.cast.DefaultCastManager
 import com.example.uniremote.cast.CastRepository
 import com.example.uniremote.cast.CastPlaybackInfo
 import com.example.uniremote.cast.CastState
-import com.example.uniremote.cast.ScreenMirrorService
 import com.example.uniremote.data.AppPreferences
 import com.example.uniremote.data.DeviceRepository
 import com.example.uniremote.data.TvDevice
@@ -86,6 +85,7 @@ class RemoteViewModel @JvmOverloads constructor(
     private val discovery: DeviceDiscovery = DeviceDiscovery(application),
     private val connectionManager: DeviceConnectionManager = DeviceConnectionManager(),
     private val castRepository: CastRepository = CastRepository(application),
+    private val castManager: DefaultCastManager = DefaultCastManager(application, castRepository),
     private val autoConnectUseCase: AutoConnectUseCase = AutoConnectUseCase(repo, connectionManager),
     private val initializeOnStartup: Boolean = true
 ) : AndroidViewModel(application) {
@@ -110,38 +110,29 @@ class RemoteViewModel @JvmOverloads constructor(
     private val _discoveredDevices = MutableStateFlow<List<TvDevice>>(emptyList())
     val discoveredDevices: StateFlow<List<TvDevice>> = _discoveredDevices.asStateFlow()
 
-    private val _isMirroring = MutableStateFlow(false)
-    val isMirroring: StateFlow<Boolean> = _isMirroring.asStateFlow()
-
     // Cast — now fully implemented via DLNA + MediaProjection.
     private val _isCastFeatureAvailable = MutableStateFlow(true)
     val isCastFeatureAvailable: StateFlow<Boolean> = _isCastFeatureAvailable.asStateFlow()
 
     /** DLNA renderers discovered on the local network. */
-    val castRenderers = castRepository.renderers
+    val castRenderers = castManager.castRenderers
 
     /** Current DLNA casting session state (Idle / Discovering / Casting / Error). */
-    val castState: StateFlow<CastState> = castRepository.castState
+    val castState: StateFlow<CastState> = castManager.castState
 
     /** Live DLNA telemetry (position/duration/volume/mute) for cast control UI. */
-    val castPlaybackInfo: StateFlow<CastPlaybackInfo> = castRepository.playbackInfo
+    val castPlaybackInfo: StateFlow<CastPlaybackInfo> = castManager.castPlaybackInfo
 
     /** Public stream endpoint (no token in URL), null when not mirroring. */
-    private val _mirrorStreamUrl = MutableStateFlow<String?>(null)
-    val mirrorStreamUrl: StateFlow<String?> = _mirrorStreamUrl.asStateFlow()
+    val mirrorStreamUrl: StateFlow<String?> = castManager.mirrorStreamUrl
 
     /** Masked auth token hint (e.g., abcd…wxyz) for manual client configuration. */
-    private val _mirrorAuthHint = MutableStateFlow<String?>(null)
-    val mirrorAuthHint: StateFlow<String?> = _mirrorAuthHint.asStateFlow()
-
-    /** Full secure link for explicit/manual sharing only (never rendered in UI). */
-    private var mirrorAuthorizationHeader: String? = null
-    private var pendingMirrorRendererUdn: String? = null
-    private var pendingMirrorRendererName: String? = null
+    val mirrorAuthHint: StateFlow<String?> = castManager.mirrorAuthHint
 
     /** TLS certificate fingerprint for trust verification on clients. */
-    private val _mirrorTlsFingerprint = MutableStateFlow<String?>(null)
-    val mirrorTlsFingerprint: StateFlow<String?> = _mirrorTlsFingerprint.asStateFlow()
+    val mirrorTlsFingerprint: StateFlow<String?> = castManager.mirrorTlsFingerprint
+
+    val isMirroring: StateFlow<Boolean> = castManager.isMirroring
 
     private val _isTextInputActive = MutableStateFlow(false)
     val isTextInputActive: StateFlow<Boolean> = _isTextInputActive.asStateFlow()
@@ -376,6 +367,11 @@ class RemoteViewModel @JvmOverloads constructor(
         try {
             connectionManager.tapMouse()
         } catch (e: UnsupportedOperationException) {
+            if (isTextInputActive.value) {
+                // In text-input mode, fallback OK causes accidental character insertion
+                // on TV virtual keyboards (current highlighted key gets committed).
+                return@launch
+            }
             // Fallback for non-pointer protocols (Samsung/Google TV/Roku):
             // tap on touchpad should still behave like D-Pad select.
             runCatching { connectionManager.sendKey(TvKey.OK) }
@@ -463,13 +459,13 @@ class RemoteViewModel @JvmOverloads constructor(
     // ── Cast (DLNA Media) ─────────────────────────────────────────────────────
 
     /** Bind DLNA service when Cast screen becomes visible. */
-    fun bindCastService() = castRepository.bind()
+    fun bindCastService() = castManager.bind()
 
     /** Unbind DLNA service when Cast screen is no longer visible. */
-    fun unbindCastService() = castRepository.unbind()
+    fun unbindCastService() = castManager.unbind()
 
     /** Re-run UPnP search for DLNA renderers. */
-    fun refreshCastDevices() = castRepository.refresh()
+    fun refreshCastDevices() = castManager.discoverDevices()
 
     /**
      * Registers [uri] with the local HTTP media server and sends a DLNA
@@ -482,31 +478,61 @@ class RemoteViewModel @JvmOverloads constructor(
         rendererUdn: String,
         rendererName: String
     ) {
-        castRepository.castMedia(uri, mimeType, title, rendererUdn, rendererName)
+        val mediaUrl = uri.toString()
+        if (mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://")) {
+            runCatching {
+                castManager.selectRenderer(rendererUdn, rendererName)
+                castManager.castMedia(mediaUrl)
+            }.onFailure {
+                reportFailure("castMediaUrl", it, "Không thể cast URL media tới TV")
+            }
+            return
+        }
+
+        val resolvedMimeType = mimeType.ifBlank {
+            getApplication<Application>().contentResolver.getType(uri) ?: "video/*"
+        }
+
+        runCatching {
+            castRepository.castMedia(
+                uri = uri,
+                mimeType = resolvedMimeType,
+                title = title,
+                rendererUdn = rendererUdn,
+                rendererName = rendererName
+            )
+        }.onFailure {
+            reportFailure("castLocalMedia", it, "Không thể cast file media từ điện thoại")
+        }
     }
 
     /** Stop the active DLNA cast session. */
-    fun stopCast() = castRepository.stopCast()
+    fun stopCast() = castManager.stopCast()
 
-    fun playCast() = castRepository.playCast()
+    fun playCast() = castManager.play()
 
-    fun pauseCast() = castRepository.pauseCast()
+    fun pauseCast() = castManager.pause()
 
-    fun seekCastBy(deltaMs: Long) = castRepository.seekBy(deltaMs)
+    fun seekCastBy(deltaMs: Long) {
+        val current = castPlaybackInfo.value
+        val upper = if (current.durationMs > 0L) current.durationMs else Long.MAX_VALUE
+        val next = (current.positionMs + deltaMs).coerceIn(0L, upper)
+        castManager.seek(next)
+    }
 
-    fun seekCastTo(positionMs: Long) = castRepository.seekTo(positionMs)
+    fun seekCastTo(positionMs: Long) = castManager.seek(positionMs)
 
-    fun changeCastVolumeBy(step: Int) = castRepository.changeVolumeBy(step)
+    fun changeCastVolumeBy(step: Int) = castManager.changeVolumeBy(step)
 
-    fun setCastVolume(level: Int) = castRepository.setVolume(level)
+    fun setCastVolume(level: Int) = castManager.setVolume(level)
 
-    fun toggleCastMute() = castRepository.toggleMute()
+    fun toggleCastMute() = castManager.toggleMute()
 
     // ── Screen Mirroring (MediaProjection → MediaCodec H.264) ─────────────────
 
     /**
-     * Starts [ScreenMirrorService] using the [MediaProjectionManager] result.
-     * Must be called from an `ActivityResult` callback.
+     * Starts screen mirroring using the ActivityResult payload from MediaProjection permission flow.
+     * Must be called from an ActivityResult callback.
      */
     fun startMirroring(
         resultCode: Int,
@@ -514,89 +540,31 @@ class RemoteViewModel @JvmOverloads constructor(
         rendererUdn: String? = null,
         rendererName: String? = null
     ) {
-        val app = getApplication<Application>()
-        val sessionToken = ScreenMirrorService.generateSessionToken()
-        pendingMirrorRendererUdn = rendererUdn
-        pendingMirrorRendererName = rendererName
-
-        ScreenMirrorService.onSessionStarted = { publicEndpoint, authHeader, maskedToken, tlsFingerprint ->
-            _mirrorStreamUrl.value = publicEndpoint
-            _mirrorAuthHint.value = maskedToken
-            mirrorAuthorizationHeader = authHeader
-            _mirrorTlsFingerprint.value = tlsFingerprint
-            _isMirroring.value = true
-
-            // Auto-publish the mirror stream to the selected DLNA renderer if provided.
-            val targetUdn = pendingMirrorRendererUdn
-            val targetName = pendingMirrorRendererName
-            if (!targetUdn.isNullOrBlank() && !targetName.isNullOrBlank()) {
-                castRepository.castUrl(
-                    mediaUrl = publicEndpoint,
-                    title = "Phone Screen (Live)",
-                    rendererUdn = targetUdn,
-                    rendererName = targetName
-                )
+        runCatching {
+            if (!rendererUdn.isNullOrBlank() && !rendererName.isNullOrBlank()) {
+                castManager.selectRenderer(rendererUdn, rendererName)
             }
+            castManager.configureMirroringProjection(resultCode, data)
+            castManager.startMirroring()
+        }.onFailure {
+            reportFailure("startMirroring", it, "Không thể bắt đầu phản chiếu màn hình")
         }
-
-        ScreenMirrorService.onStopped = {
-            _isMirroring.value = false
-            _mirrorStreamUrl.value = null
-            _mirrorAuthHint.value = null
-            mirrorAuthorizationHeader = null
-            _mirrorTlsFingerprint.value = null
-        }
-
-        val intent = Intent(app, ScreenMirrorService::class.java).apply {
-            action = ScreenMirrorService.ACTION_START
-            putExtra(ScreenMirrorService.EXTRA_RESULT_CODE, resultCode)
-            putExtra(ScreenMirrorService.EXTRA_RESULT_DATA, data)
-            putExtra(ScreenMirrorService.EXTRA_SESSION_TOKEN, sessionToken)
-            putExtra(ScreenMirrorService.EXTRA_CLIENT_RESTRICTION_MODE, ScreenMirrorService.RESTRICTION_FIRST_CLIENT)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            app.startForegroundService(intent)
-        } else {
-            app.startService(intent)
-        }
-        // Show non-sensitive endpoint while service finalizes session.
-        val ip = castRepository.getLocalIp() ?: "?.?.?.?"
-        _mirrorStreamUrl.value = ScreenMirrorService.buildStreamEndpointUrl(ip)
-        _mirrorAuthHint.value = ScreenMirrorService.maskToken(sessionToken)
-        mirrorAuthorizationHeader = null
-        _mirrorTlsFingerprint.value = null
-        _isMirroring.value = true
     }
 
-    fun getMirrorAuthorizationHeaderForManualShare(): String? = mirrorAuthorizationHeader
+    fun getMirrorAuthorizationHeaderForManualShare(): String? =
+        castManager.getMirrorAuthorizationHeaderForManualShare()
 
     fun onMirroringPermissionDenied() {
-        _isMirroring.value = false
-        _mirrorStreamUrl.value = null
-        _mirrorAuthHint.value = null
-        mirrorAuthorizationHeader = null
-        _mirrorTlsFingerprint.value = null
+        castManager.stopMirroring()
         _toastMessage.tryEmit("Bạn cần cấp quyền thông báo để bắt đầu phản chiếu màn hình")
     }
 
     /** Stops the H.264 mirroring service. */
-    fun stopMirroring() {
-        val app = getApplication<Application>()
-        app.startService(
-            Intent(app, ScreenMirrorService::class.java).apply { action = ScreenMirrorService.ACTION_STOP }
-        )
-        _isMirroring.value = false
-        _mirrorStreamUrl.value = null
-        _mirrorAuthHint.value = null
-        mirrorAuthorizationHeader = null
-        _mirrorTlsFingerprint.value = null
-        pendingMirrorRendererUdn = null
-        pendingMirrorRendererName = null
-    }
+    fun stopMirroring() = castManager.stopMirroring()
 
     /** Toggle helper — start must be initiated from UI (requires Activity result). */
     fun toggleMirroring() {
-        if (_isMirroring.value) stopMirroring()
+        if (isMirroring.value) stopMirroring()
     }
 
     fun setAutoReconnect(enabled: Boolean) = viewModelScope.launch { prefs.setAutoReconnect(enabled) }
@@ -638,9 +606,7 @@ class RemoteViewModel @JvmOverloads constructor(
         ssidJob?.cancel()
         connectionManager.onCleared()
         stopScan()
-        castRepository.release()
-        ScreenMirrorService.onStopped = null
-        ScreenMirrorService.onSessionStarted = null
+        castManager.release()
         super.onCleared()
     }
 

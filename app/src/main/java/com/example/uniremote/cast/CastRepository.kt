@@ -1,13 +1,19 @@
 package com.example.uniremote.cast
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.LinkAddress
+import android.net.NetworkCapabilities
 import android.net.Uri
+import android.net.wifi.WifiManager
 import android.os.IBinder
+import android.os.PowerManager
+import android.util.Log
 import com.example.uniremote.network.TransportSecurityPolicy
 import com.uniremote.dlna.dlna.DlnaManager
 import com.uniremote.dlna.dlna.DlnaRenderer
@@ -43,7 +49,14 @@ data class CastPlaybackInfo(
  * - Exposes reactive [castState] and [renderers] flows to the ViewModel.
  */
 class CastRepository(private val context: Context) {
+    companion object {
+        private const val TAG = "CastRepository"
+        private const val MULTICAST_LOCK_TAG = "UniRemoteDlnaSsdp"
+        private const val MAX_CONSECUTIVE_TELEMETRY_FAILURES = 6
+    }
+
     private val appContext = context.applicationContext
+    private val ssdpProbe = DlnaSsdpProbe()
 
     private val _renderers = MutableStateFlow<List<DlnaRenderer>>(emptyList())
     val renderers: StateFlow<List<DlnaRenderer>> = _renderers.asStateFlow()
@@ -56,9 +69,12 @@ class CastRepository(private val context: Context) {
     val playbackInfo: StateFlow<CastPlaybackInfo> = _playbackInfo.asStateFlow()
 
     private var mediaServer: NanoHttpMediaServer? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
     private var activeRendererUdn: String? = null
     private var discoveryTimeoutJob: Job? = null
+    private var discoverySweepJob: Job? = null
     private var playbackPollJob: Job? = null
+    private var consecutiveTelemetryFailures: Int = 0
 
     // Scope used for retry logic only — cancelled in release()
     private val repoScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -74,6 +90,13 @@ class CastRepository(private val context: Context) {
             }
         },
         onError = { msg ->
+            if (isTelemetryError(msg) && _castState.value is CastState.Casting) {
+                consecutiveTelemetryFailures += 1
+                if (consecutiveTelemetryFailures < MAX_CONSECUTIVE_TELEMETRY_FAILURES) {
+                    return@DlnaManager
+                }
+            }
+
             // Only surface errors when the user is actively trying to cast
             if (_castState.value !is CastState.Idle) {
                 stateMachine.onError(msg)
@@ -81,6 +104,7 @@ class CastRepository(private val context: Context) {
             }
         },
         onPosition = { info ->
+            consecutiveTelemetryFailures = 0
             val nextPosition = parseUpnpTimeMillis(info.relTime)
             val nextDuration = parseUpnpTimeMillis(info.trackDuration)
             _playbackInfo.value = _playbackInfo.value.copy(
@@ -89,6 +113,7 @@ class CastRepository(private val context: Context) {
             )
         },
         onVolume = { level, muted ->
+            consecutiveTelemetryFailures = 0
             _playbackInfo.value = _playbackInfo.value.copy(
                 volume = level ?: _playbackInfo.value.volume,
                 muted = muted ?: _playbackInfo.value.muted
@@ -113,7 +138,7 @@ class CastRepository(private val context: Context) {
                     delay(500L * (retries + 1))   // 500 ms, 1 s, 1.5 s …
                     dlnaManager.bind(upnpService)
                     if (upnpService.registry != null) {
-                        dlnaManager.refresh()
+                        startDiscoverySweep()
                         break
                     }
                     retries++
@@ -122,7 +147,7 @@ class CastRepository(private val context: Context) {
                 // Do not surface a blocking error banner here; keep the screen in discovery
                 // state and allow manual Scan because jUPnP registry readiness can be delayed.
                 if (upnpService.registry == null) {
-                    dlnaManager.refresh()
+                    startDiscoverySweep()
                 }
             }
         }
@@ -145,12 +170,20 @@ class CastRepository(private val context: Context) {
     fun bind() {
         if (isBound) return
 
+        val preflightError = validateDiscoveryPreconditions()
+        if (preflightError != null) {
+            stateMachine.onError(preflightError)
+            return
+        }
+
         if (!TransportSecurityPolicy.allowInsecureDlnaCasting()) {
             stateMachine.onError(
                 "DLNA casting is disabled in production mode because it requires plaintext HTTP."
             )
             return
         }
+
+        acquireMulticastLock()
 
         // Start the local media server (serves files to the TV over HTTP)
         if (mediaServer == null) {
@@ -172,6 +205,7 @@ class CastRepository(private val context: Context) {
         if (!bindSuccess) {
             stateMachine.onError("Could not bind DLNA service. Please retry.")
             isBound = false
+            releaseMulticastLock()
             return
         }
 
@@ -186,6 +220,8 @@ class CastRepository(private val context: Context) {
         if (!isBound) return
         discoveryTimeoutJob?.cancel()
         discoveryTimeoutJob = null
+        discoverySweepJob?.cancel()
+        discoverySweepJob = null
         // Cancel any in-flight retry coroutine BEFORE calling unbindService.
         // If we unbind while the retry loop is still running, the loop may try
         // to call dlnaManager.bind() on a service that is being destroyed,
@@ -200,6 +236,7 @@ class CastRepository(private val context: Context) {
             stateMachine.onIdle()
         }
         _renderers.value = emptyList()
+        releaseMulticastLock()
     }
 
     /**
@@ -211,6 +248,37 @@ class CastRepository(private val context: Context) {
         unbind()
         mediaServer?.stop()
         mediaServer = null
+        releaseMulticastLock()
+    }
+
+    private fun acquireMulticastLock() {
+        if (multicastLock?.isHeld == true) return
+
+        val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            ?: return
+
+        val lock = wifiManager.createMulticastLock(MULTICAST_LOCK_TAG).apply {
+            setReferenceCounted(false)
+        }
+
+        runCatching {
+            lock.acquire()
+            multicastLock = lock
+        }.onFailure {
+            Log.w(TAG, "Failed to acquire multicast lock for DLNA discovery", it)
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        val lock = multicastLock ?: return
+        runCatching {
+            if (lock.isHeld) {
+                lock.release()
+            }
+        }.onFailure {
+            Log.w(TAG, "Failed to release multicast lock", it)
+        }
+        multicastLock = null
     }
 
     // ── Operations ────────────────────────────────────────────────────────────
@@ -219,7 +287,64 @@ class CastRepository(private val context: Context) {
     fun refresh() {
         stateMachine.onDiscovering()
         armDiscoveryTimeout()
-        dlnaManager.refresh()
+        startDiscoverySweep()
+    }
+
+    private fun startDiscoverySweep() {
+        discoverySweepJob?.cancel()
+        discoverySweepJob = repoScope.launch {
+            repeat(3) { index ->
+                val attempt = index + 1
+                dlnaManager.refresh()
+                runCatching {
+                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                        ssdpProbe.runProbe(attempt = attempt, timeoutMs = 1800) { raw ->
+                            Log.i(TAG, raw)
+                        }
+                    }
+                }.onFailure {
+                    Log.w(TAG, "SSDP probe attempt=$attempt failed", it)
+                }
+
+                if (attempt < 3) {
+                    delay(1200L + (index * 500L))
+                }
+            }
+        }
+    }
+
+    private fun validateDiscoveryPreconditions(): String? {
+        val cm = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val active = cm.activeNetwork ?: return "No active network. Connect Wi-Fi to scan DLNA TVs."
+        val caps = cm.getNetworkCapabilities(active)
+            ?: return "Cannot read active network capabilities for DLNA discovery."
+
+        val hasLanTransport = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+        if (!hasLanTransport) {
+            return "DLNA discovery requires Wi-Fi/LAN as active network."
+        }
+
+        val wifiTransportActive = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        if (wifiTransportActive && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            val hasNearbyWifiPermission =
+                appContext.checkSelfPermission(Manifest.permission.NEARBY_WIFI_DEVICES) ==
+                    PackageManager.PERMISSION_GRANTED
+            if (!hasNearbyWifiPermission) {
+                return "Nearby Wi-Fi permission is required for DLNA scan on Android 13+."
+            }
+        }
+
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+            return "Disable VPN and retry DLNA scan. VPN can block multicast SSDP."
+        }
+
+        val pm = appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        if (pm != null && !pm.isIgnoringBatteryOptimizations(appContext.packageName)) {
+            Log.w(TAG, "Battery optimization active; SSDP multicast delivery may be delayed")
+        }
+
+        return null
     }
 
     /** Cast an already-public URL (e.g. mirror stream) to a selected renderer. */
@@ -229,12 +354,15 @@ class CastRepository(private val context: Context) {
         rendererUdn: String,
         rendererName: String
     ) {
+        consecutiveTelemetryFailures = 0
+        val routedMediaUrl = adaptLocalUrlForRenderer(mediaUrl, rendererUdn)
+
         activeRendererUdn = rendererUdn
         stateMachine.onSendingUri(title, rendererName)
 
         dlnaManager.cast(
             rendererUdn = rendererUdn,
-            mediaUrl = mediaUrl,
+            mediaUrl = routedMediaUrl,
             title = title,
             onUriAccepted = {
                 repoScope.launch {
@@ -267,6 +395,7 @@ class CastRepository(private val context: Context) {
         rendererUdn: String,
         rendererName: String
     ) {
+        consecutiveTelemetryFailures = 0
         val server = mediaServer ?: run {
             stateMachine.onError("Media server is not available. Please reconnect.")
             return
@@ -281,7 +410,7 @@ class CastRepository(private val context: Context) {
         val mediaPath = server.setActiveMedia(uri, mimeType, title)
         activeRendererUdn = rendererUdn
 
-        val mediaUrl = "http://$host:8080/$mediaPath"
+        val mediaUrl = adaptLocalUrlForRenderer("http://$host:8080/$mediaPath", rendererUdn)
         stateMachine.onSendingUri(title, rendererName)
 
         dlnaManager.cast(
@@ -313,6 +442,7 @@ class CastRepository(private val context: Context) {
         activeRendererUdn?.let { dlnaManager.stop(it) }
         mediaServer?.clearActiveMedia()
         activeRendererUdn = null
+        consecutiveTelemetryFailures = 0
         stopPlaybackPolling(resetInfo = true)
         stateMachine.onIdle()
     }
@@ -403,6 +533,58 @@ class CastRepository(private val context: Context) {
         val m = parts[1].toLongOrNull() ?: return 0L
         val s = parts[2].toLongOrNull() ?: return 0L
         return ((h * 3600L) + (m * 60L) + s) * 1000L
+    }
+
+    private fun isTelemetryError(message: String): Boolean {
+        val normalized = message.lowercase(Locale.US)
+        return normalized.startsWith("get position failed") ||
+            normalized.startsWith("get volume failed") ||
+            normalized.startsWith("get mute failed")
+    }
+
+    /**
+     * If [url] points back to this phone (localhost/device IP), rewrite its host to the
+     * interface address that routes to [rendererUdn]. This avoids multi-NIC/subnet cast failures.
+     */
+    private fun adaptLocalUrlForRenderer(url: String, rendererUdn: String): String {
+        val parsed = Uri.parse(url)
+        val scheme = parsed.scheme?.lowercase(Locale.US) ?: return url
+        if (scheme != "http" && scheme != "https") return url
+
+        val host = parsed.host?.lowercase(Locale.US) ?: return url
+        if (!isLocalHost(host)) return url
+
+        val routedIp = dlnaManager.resolveLocalIpForRenderer(rendererUdn) ?: return url
+        if (host == routedIp) return url
+
+        val authority = if (parsed.port != -1) "$routedIp:${parsed.port}" else routedIp
+        return parsed.buildUpon()
+            .encodedAuthority(authority)
+            .build()
+            .toString()
+    }
+
+    private fun isLocalHost(host: String): Boolean {
+        if (host == "localhost" || host == "127.0.0.1" || host == "0.0.0.0") {
+            return true
+        }
+
+        val knownHosts = mutableSetOf<String>()
+        getLocalIp()?.let { knownHosts.add(it.lowercase(Locale.US)) }
+
+        val interfaces = NetworkInterface.getNetworkInterfaces() ?: return host in knownHosts
+        for (network in interfaces) {
+            if (!network.isUp || network.isLoopback) continue
+            val addresses = network.inetAddresses
+            while (addresses.hasMoreElements()) {
+                val address = addresses.nextElement()
+                if (address is Inet4Address && !address.isLoopbackAddress) {
+                    address.hostAddress?.lowercase(Locale.US)?.let { knownHosts.add(it) }
+                }
+            }
+        }
+
+        return host in knownHosts
     }
 
     // ── Utilities ─────────────────────────────────────────────────────────────
