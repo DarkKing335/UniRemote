@@ -259,9 +259,28 @@ class DeviceConnectionManager {
             { RokuController(device) }
         )
 
+        TvBrand.PANASONIC -> listOf(
+            { PanasonicTvController(device) }
+        )
+
+        TvBrand.VIZIO -> buildList {
+            add { VizioTvController(device) }
+            add { AndroidTvController(device) }
+        }
+
+        TvBrand.HISENSE -> buildList {
+            add { HisenseTvController(device) }
+            add { GoogleTvController(device) { state -> _pairingState.value = state } }
+            add { AndroidTvController(device) }
+        }
+
         TvBrand.GOOGLE_TV,
         TvBrand.ANDROID,
-        TvBrand.XIAOMI -> buildList {
+        TvBrand.XIAOMI,
+        TvBrand.TCL,
+        TvBrand.TOSHIBA,
+        TvBrand.SHARP,
+        TvBrand.PHILIPS -> buildList {
             // 1st: Google TV Remote Protocol (port 6466) — native pairing/control
             add { GoogleTvController(device) { state -> _pairingState.value = state } }
             // Last resort: ADB — connects if TV has Developer Options + ADB over network enabled
