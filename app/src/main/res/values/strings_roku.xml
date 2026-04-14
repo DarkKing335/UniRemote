@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="roku_blocked_title">Network Access Disabled</string>
+    <string name="roku_blocked_message">We detected that \"Network Access\" is disabled on your Roku TV. This prevents remote control via WiFi.</string>
+    <string name="roku_blocked_instruction">To fix this, please follow these steps on your TV:\n\n1. Go to Settings\n2. Select System\n3. Select Advanced system settings\n4. Select Network access\n5. Change it to \"Default\" or \"Permissive\"</string>
+    <string name="roku_use_ir_mode">Switch to IR Mode</string>
+    <string name="roku_got_it">Got it</string>
+    <string name="roku_ir_not_supported">Your phone does not support IR mode. Please enable Network Access on your TV.</string>
+</resources>

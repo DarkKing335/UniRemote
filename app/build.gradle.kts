@@ -6,6 +6,11 @@ plugins {
 android {
     namespace = "com.example.uniremote"
     compileSdk = 36
+    val wolRelayUrl = (project.findProperty("WOL_RELAY_URL") as? String)
+        ?.trim()
+        ?.replace("\\", "\\\\")
+        ?.replace("\"", "\\\"")
+        ?: ""
 
     defaultConfig {
         applicationId = "com.example.uniremote"
@@ -18,6 +23,7 @@ android {
         // are disabled unless explicitly enabled in non-release builds.
         buildConfigField("boolean", "ENABLE_INSECURE_DEVICE_PROTOCOLS", "false")
         buildConfigField("boolean", "ENABLE_INSECURE_DLNA_CASTING", "false")
+        buildConfigField("String", "WOL_RELAY_URL", "\"$wolRelayUrl\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

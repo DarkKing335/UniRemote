@@ -8,6 +8,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParserFactory
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -77,7 +79,22 @@ class RokuController(override val device: TvDevice) : TvController {
             return@withContext false
         }
         // Roku doesn't keep a persistent session; verify reachability via device-info ping.
-        val reachable = runGetWithRetry("$baseUrl/query/device-info", attempts = 2)
+        val status = runGetStatusWithRetry("$baseUrl/query/device-info", attempts = 2)
+        val reachable = status in 200..299 || status == 401 || status == 403
+        
+        if (!reachable) {
+            val tcpReachable = if (status == -1) {
+                canReachEcpPort(device.ip, device.port)
+            } else {
+                false
+            }
+            // Logic to provide feedback on why it failed
+            if (status == 401 || status == 403) {
+                Log.w(TAG, "Roku reachable but control is restricted (HTTP $status) at ${device.ip}:${device.port}")
+            } else if (status == -1 && tcpReachable) {
+                 Log.w(TAG, "Roku TCP reachable but ECP blocked. Likely 'Network access = Disabled'.")
+            }
+        }
         isConnected = reachable
         reachable
     }
@@ -219,6 +236,33 @@ class RokuController(override val device: TvDevice) : TvController {
             }
         }
         return null
+    }
+
+    private fun canReachEcpPort(host: String, port: Int, timeoutMs: Int = 1200): Boolean {
+        return runCatching {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(host, port), timeoutMs)
+                true
+            }
+        }.getOrDefault(false)
+    }
+
+    private suspend fun runGetStatusWithRetry(url: String, attempts: Int): Int {
+        repeat(attempts) { index ->
+            val status = runCatching {
+                val request = Request.Builder().url(url).build()
+                client.newCall(request).execute().use { response ->
+                    response.code
+                }
+            }.getOrDefault(-1)
+
+            if (status != -1) return status
+            if (index < attempts - 1) {
+                val backoffMs = min(800L, (index + 1) * 300L)
+                kotlinx.coroutines.delay(backoffMs)
+            }
+        }
+        return -1
     }
 
     override suspend fun moveMouse(dx: Float, dy: Float) {
