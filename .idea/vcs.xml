@@ -2,5 +2,12 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/WoL-gitclone/ADB/AndroidTV-Remote-Controller" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/WoL-gitclone/AndroidTVRemoteProtocolv2/ESP32_android_tv_remote_v2" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/WoL-gitclone/AndroidTVRemoteProtocolv2/androidtvremote2" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/WoL-gitclone/MagicPacket/Wake-On-Lan" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/WoL-gitclone/MagicPacket/WakeOnLan" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/WoL-gitclone/MagicPacket/androidnetworktools" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/WoL-gitclone/MagicPacket/simple-wake-on-lan" vcs="Git" />
   </component>
 </project>
