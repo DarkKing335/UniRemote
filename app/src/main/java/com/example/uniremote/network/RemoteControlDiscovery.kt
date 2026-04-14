@@ -4,6 +4,8 @@ import android.content.Context
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onStart
 
 private const val TAG = "RemoteControlDiscovery"
 
@@ -39,5 +41,39 @@ class RemoteControlDiscovery(context: Context) {
         )
     )
 
-    fun discover(): Flow<List<TvDevice>> = engine.discover()
+    private val rokuSsdpDiscovery = RokuSsdpDiscovery()
+
+    fun discover(): Flow<List<TvDevice>> {
+        return combine(
+            engine.discover().onStart { emit(emptyList()) },
+            rokuSsdpDiscovery.discover().onStart { emit(emptyList()) }
+        ) { nsdDevices, rokuDevices ->
+            mergeDevicesByIp(nsdDevices, rokuDevices)
+        }
+    }
+
+    private fun mergeDevicesByIp(
+        nsdDevices: List<TvDevice>,
+        rokuDevices: List<TvDevice>
+    ): List<TvDevice> {
+        val mergedByIp = linkedMapOf<String, TvDevice>()
+
+        // Keep NSD devices first to preserve existing ordering behavior.
+        nsdDevices.forEach { device ->
+            mergedByIp[device.ip] = device
+        }
+
+        // Roku SSDP should win for Roku endpoints because it has protocol-specific identity.
+        rokuDevices.forEach { roku ->
+            val existing = mergedByIp[roku.ip]
+            mergedByIp[roku.ip] = when {
+                existing == null -> roku
+                existing.brand != TvBrand.ROKU -> roku
+                roku.name.length > existing.name.length -> roku
+                else -> existing
+            }
+        }
+
+        return mergedByIp.values.toList()
+    }
 }

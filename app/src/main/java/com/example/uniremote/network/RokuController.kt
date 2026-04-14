@@ -11,6 +11,7 @@ import org.xmlpull.v1.XmlPullParserFactory
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlin.math.min
 
 private const val TAG = "RokuController"
 
@@ -33,7 +34,7 @@ class RokuController(override val device: TvDevice) : TvController {
 
     private val baseUrl = "http://${device.ip}:${device.port}"
     private fun isRokuCompatibilityAllowed(): Boolean {
-        return TransportSecurityPolicy.allowInsecureDeviceProtocol("Roku ECP over http://", host = device.ip)
+        return TransportSecurityPolicy.allowCleartextForUrl(baseUrl, "Roku ECP")
     }
     // @Volatile: read/written from IO coroutines and OkHttp callback threads
     @Volatile private var isConnected = false
@@ -75,17 +76,10 @@ class RokuController(override val device: TvDevice) : TvController {
             isConnected = false
             return@withContext false
         }
-        // Roku doesn't maintain a persistent connection; ping device-info to verify reachability.
-        runCatching {
-            val request = Request.Builder().url("$baseUrl/query/device-info").build()
-            client.newCall(request).execute().use { response ->
-                isConnected = response.isSuccessful
-                isConnected
-            }
-        }.getOrElse {
-            isConnected = false
-            false
-        }
+        // Roku doesn't keep a persistent session; verify reachability via device-info ping.
+        val reachable = runGetWithRetry("$baseUrl/query/device-info", attempts = 2)
+        isConnected = reachable
+        reachable
     }
 
     override fun disconnect() {
@@ -120,40 +114,36 @@ class RokuController(override val device: TvDevice) : TvController {
     override suspend fun getInstalledApps(): List<TvApp> = withContext(Dispatchers.IO) {
         val apps = mutableListOf<TvApp>()
         runCatching {
-            val request = Request.Builder().url("$baseUrl/query/apps").build()
-            client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return@use
-                val xml = response.body?.string() ?: return@use
+            val xml = runGetForBodyWithRetry("$baseUrl/query/apps", attempts = 2) ?: return@runCatching
 
-                val factory = XmlPullParserFactory.newInstance()
-                val parser = factory.newPullParser()
-                parser.setInput(xml.reader())
+            val factory = XmlPullParserFactory.newInstance()
+            val parser = factory.newPullParser()
+            parser.setInput(xml.reader())
 
-                var eventType = parser.eventType
-                var appId = ""
-                var appName = ""
+            var eventType = parser.eventType
+            var appId = ""
+            var appName = ""
 
-                while (eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
-                    when (eventType) {
-                        org.xmlpull.v1.XmlPullParser.START_TAG -> {
-                            if (parser.name == "app") {
-                                appId = parser.getAttributeValue(null, "id") ?: ""
-                            }
-                        }
-                        org.xmlpull.v1.XmlPullParser.TEXT -> {
-                            if (appId.isNotEmpty()) {
-                                appName = parser.text.trim()
-                            }
-                        }
-                        org.xmlpull.v1.XmlPullParser.END_TAG -> {
-                            if (parser.name == "app" && appId.isNotEmpty()) {
-                                apps.add(TvApp(id = appId, name = appName))
-                                appId = ""
-                            }
+            while (eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                when (eventType) {
+                    org.xmlpull.v1.XmlPullParser.START_TAG -> {
+                        if (parser.name == "app") {
+                            appId = parser.getAttributeValue(null, "id") ?: ""
                         }
                     }
-                    eventType = parser.next()
+                    org.xmlpull.v1.XmlPullParser.TEXT -> {
+                        if (appId.isNotEmpty()) {
+                            appName = parser.text.trim()
+                        }
+                    }
+                    org.xmlpull.v1.XmlPullParser.END_TAG -> {
+                        if (parser.name == "app" && appId.isNotEmpty()) {
+                            apps.add(TvApp(id = appId, name = appName))
+                            appId = ""
+                        }
+                    }
                 }
+                eventType = parser.next()
             }
         }
         apps
@@ -192,6 +182,43 @@ class RokuController(override val device: TvDevice) : TvController {
             Log.e(TAG, "POST failed for $url: ${it.message}")
             isConnected = false
         }
+    }
+
+    private suspend fun runGetWithRetry(url: String, attempts: Int): Boolean {
+        repeat(attempts) { index ->
+            val success = runCatching {
+                val request = Request.Builder().url(url).build()
+                client.newCall(request).execute().use { response ->
+                    response.isSuccessful
+                }
+            }.getOrDefault(false)
+
+            if (success) return true
+            if (index < attempts - 1) {
+                val backoffMs = min(800L, (index + 1) * 300L)
+                kotlinx.coroutines.delay(backoffMs)
+            }
+        }
+        return false
+    }
+
+    private suspend fun runGetForBodyWithRetry(url: String, attempts: Int): String? {
+        repeat(attempts) { index ->
+            val body = runCatching {
+                val request = Request.Builder().url(url).build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use null
+                    response.body?.string()
+                }
+            }.getOrNull()
+
+            if (!body.isNullOrBlank()) return body
+            if (index < attempts - 1) {
+                val backoffMs = min(800L, (index + 1) * 300L)
+                kotlinx.coroutines.delay(backoffMs)
+            }
+        }
+        return null
     }
 
     override suspend fun moveMouse(dx: Float, dy: Float) {

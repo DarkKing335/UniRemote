@@ -7,6 +7,7 @@ import com.example.uniremote.data.TvDevice
 import com.example.uniremote.domain.ConnectionStatus
 import com.example.uniremote.network.DeviceConnectionManager
 import com.example.uniremote.network.PairingState
+import com.example.uniremote.network.RokuSsdpDiscovery
 import com.example.uniremote.network.TvApp
 import com.example.uniremote.network.TvAppUiModel
 import com.example.uniremote.network.TvKey
@@ -312,11 +313,53 @@ internal class ConnectionViewModel(
     fun wakeTV() {
         val device = connectedDevice.value ?: return
         val cleanMac = device.mac.replace(":", "").replace("-", "")
-        if (cleanMac.length != 12) {
-            emitToast("Thieu dia chi MAC hop le de bat TV bang WoL")
+
+        scope.launch(Dispatchers.IO) {
+            if (device.brand != TvBrand.ROKU) {
+                if (cleanMac.length != 12) {
+                    emitToast("Thieu dia chi MAC hop le de bat TV bang WoL")
+                    return@launch
+                }
+                runCatching { WakeOnLanUtil.sendMagicPacket(device.mac) }
+                    .onFailure { reportFailure("wakeTV", it, "Khong gui duoc goi WoL") }
+                return@launch
+            }
+
+            // Roku fallback chain:
+            // 1) WoL magic packet (if MAC exists)
+            // 2) Retry ECP reachability
+            // 3) Send Home key to wake from standby-ready state
+            val wolAttempted = cleanMac.length == 12
+            if (wolAttempted) {
+                runCatching { WakeOnLanUtil.sendMagicPacket(device.mac) }
+                    .onFailure { reportFailure("rokuWake:wol", it, "WoL that bai, dang thu ECP") }
+                delay(4_000)
+            }
+
+            val reachable = runCatching { connectionManager.tryConnectSilently(device) }
+                .getOrDefault(false)
+
+            if (!reachable) {
+                val connected = runCatching { connectionManager.connectTo(device) }
+                    .getOrDefault(false)
+                if (!connected) {
+                    emitToast("Roku chua online. Kiem tra che do Network Standby tren TV")
+                    return@launch
+                }
+            }
+
+            runCatching { connectionManager.sendKey(TvKey.HOME) }
+                .onFailure { reportFailure("rokuWake:home", it, "Khong gui duoc lenh Home toi Roku") }
+        }
+    }
+
+    fun connectToManualRokuIp(ip: String, name: String = "Roku (Manual IP)") {
+        val manual = RokuSsdpDiscovery.buildManualRokuDevice(ip, name)
+        if (manual == null) {
+            emitToast("IP khong hop le. Chi ho tro dia chi LAN noi bo")
             return
         }
-        scope.launch(Dispatchers.IO) { WakeOnLanUtil.sendMagicPacket(device.mac) }
+        connectTo(manual)
     }
 
     fun loadInstalledApps() {

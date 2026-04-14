@@ -171,6 +171,9 @@ class RemoteViewModel @JvmOverloads constructor(
 
     fun connectTo(device: TvDevice) = connectionViewModel.connectTo(device)
 
+    fun connectToManualRokuIp(ip: String, name: String = "Roku (Manual IP)") =
+        connectionViewModel.connectToManualRokuIp(ip, name)
+
     fun startGoogleTvPairing(device: TvDevice) = connectionViewModel.startGoogleTvPairing(device)
 
     fun submitPairingPin(pin: String) = connectionViewModel.submitPairingPin(pin)
