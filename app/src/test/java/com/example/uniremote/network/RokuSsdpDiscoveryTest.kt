@@ -27,6 +27,20 @@ class RokuSsdpDiscoveryTest {
     }
 
     @Test
+    fun `manual Roku device accepts LAN IPv4 with custom port`() {
+        val device = RokuSsdpDiscovery.buildManualRokuDevice("192.168.1.45:8061")
+        assertNotNull(device)
+        assertEquals("192.168.1.45", device!!.ip)
+        assertEquals(8061, device.port)
+    }
+
+    @Test
+    fun `manual Roku device rejects invalid port format`() {
+        val device = RokuSsdpDiscovery.buildManualRokuDevice("192.168.1.45:notaport")
+        assertNull(device)
+    }
+
+    @Test
     fun `isLanIpv4 allows private ranges and blocks public IP`() {
         assertTrue(RokuSsdpDiscovery.isLanIpv4("192.168.0.10"))
         assertTrue(RokuSsdpDiscovery.isLanIpv4("10.0.0.5"))
@@ -106,5 +120,25 @@ class RokuSsdpDiscoveryTest {
 
         val parsed = RokuSsdpDiscovery.parseRokuDescriptionForTest(xml)
         assertEquals("Roku Ultra", parsed.friendlyName)
+    }
+
+    @Test
+    fun `roku fingerprint accepts restricted 403 when server header indicates Roku`() {
+        val isRoku = RokuSsdpDiscovery.isLikelyRokuHttpFingerprintForTest(
+            statusCode = 403,
+            serverHeader = "Roku/14.0 UPnP/1.0",
+            body = null
+        )
+        assertTrue(isRoku)
+    }
+
+    @Test
+    fun `roku fingerprint rejects restricted 403 without Roku hints`() {
+        val isRoku = RokuSsdpDiscovery.isLikelyRokuHttpFingerprintForTest(
+            statusCode = 403,
+            serverHeader = "nginx",
+            body = "<html>forbidden</html>"
+        )
+        assertFalse(isRoku)
     }
 }

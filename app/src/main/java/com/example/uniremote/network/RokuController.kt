@@ -9,8 +9,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParserFactory
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 import kotlin.math.min
 
 private const val TAG = "RokuController"
@@ -38,6 +36,7 @@ class RokuController(override val device: TvDevice) : TvController {
     }
     // @Volatile: read/written from IO coroutines and OkHttp callback threads
     @Volatile private var isConnected = false
+    @Volatile private var failureReason: String? = null
 
     companion object {
         private val KEY_MAP = mapOf(
@@ -72,12 +71,25 @@ class RokuController(override val device: TvDevice) : TvController {
     }
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        failureReason = null
         if (!isRokuCompatibilityAllowed()) {
             isConnected = false
+            failureReason = "Roku ECP bị chặn bởi chính sách cleartext."
             return@withContext false
         }
         // Roku doesn't keep a persistent session; verify reachability via device-info ping.
-        val reachable = runGetWithRetry("$baseUrl/query/device-info", attempts = 2)
+        val status = runGetStatusWithRetry("$baseUrl/query/device-info", attempts = 2)
+        val reachable = status in 200..299 || status == 401 || status == 403
+        if (!reachable) {
+            failureReason = when (status) {
+                401, 403 -> "Roku đang chặn điều khiển qua app. Vào Settings > System > Advanced system settings > Control by mobile apps > Network access = Permissive/Enabled."
+                404 -> "Roku ECP endpoint không phản hồi đúng trên ${device.ip}:${device.port}."
+                -1 -> "Không thể kết nối Roku tại ${device.ip}:${device.port}. Kiểm tra cùng mạng LAN."
+                else -> "Roku trả về HTTP $status khi kiểm tra kết nối."
+            }
+        } else if (status == 401 || status == 403) {
+            Log.w(TAG, "Roku reachable but control is restricted (HTTP $status) at ${device.ip}:${device.port}")
+        }
         isConnected = reachable
         reachable
     }
@@ -88,6 +100,12 @@ class RokuController(override val device: TvDevice) : TvController {
     }
 
     override fun isConnected(): Boolean = isConnected
+
+    override fun getConnectionFailureReason(): String? = failureReason
+
+    override fun clearConnectionFailureReason() {
+        failureReason = null
+    }
 
     override suspend fun sendKey(key: TvKey): Unit = withContext(Dispatchers.IO) {
         val rokuKey = KEY_MAP[key]
@@ -156,50 +174,59 @@ class RokuController(override val device: TvDevice) : TvController {
     private suspend fun post(url: String) {
         if (!isRokuCompatibilityAllowed()) {
             isConnected = false
-            return
+            throw IllegalStateException("Roku ECP bị chặn bởi chính sách cleartext.")
         }
-        kotlin.runCatching {
-            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
-                val request = Request.Builder()
-                    .url(url)
-                    .post("".toRequestBody())
-                    .build()
-                val call = client.newCall(request)
+        val request = Request.Builder()
+            .url(url)
+            .post("".toRequestBody())
+            .build()
 
-                cont.invokeOnCancellation { call.cancel() }
-
-                call.enqueue(object : okhttp3.Callback {
-                    override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                        if (cont.isActive) cont.resumeWithException(e)
-                    }
-                    override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                        response.close()
-                        if (cont.isActive) cont.resume(Unit)
-                    }
-                })
+        val status = runCatching {
+            client.newCall(request).execute().use { response ->
+                response.code
             }
-        }.onFailure {
-            Log.e(TAG, "POST failed for $url: ${it.message}")
+        }.getOrElse {
             isConnected = false
+            throw it
+        }
+
+        when {
+            status in 200..299 -> {
+                isConnected = true
+            }
+            status == 401 || status == 403 -> {
+                // Device is online, but Roku blocks commands due to Network Access policy.
+                isConnected = true
+                throw IllegalStateException(
+                    "Roku dang chan lenh dieu khien qua mang LAN. " +
+                        "Vao Settings > System > Advanced system settings > " +
+                        "Control by mobile apps > Network access = Permissive/Enabled."
+                )
+            }
+            else -> {
+                isConnected = false
+                throw IllegalStateException("Roku command failed with HTTP $status")
+            }
         }
     }
 
-    private suspend fun runGetWithRetry(url: String, attempts: Int): Boolean {
+    private suspend fun runGetStatusWithRetry(url: String, attempts: Int): Int {
         repeat(attempts) { index ->
-            val success = runCatching {
+            val code = runCatching {
                 val request = Request.Builder().url(url).build()
                 client.newCall(request).execute().use { response ->
-                    response.isSuccessful
+                    response.code
                 }
-            }.getOrDefault(false)
+            }.getOrDefault(-1)
 
-            if (success) return true
+            if (code in 200..299) return code
+            if (code == 401 || code == 403 || code == 404) return code
             if (index < attempts - 1) {
                 val backoffMs = min(800L, (index + 1) * 300L)
                 kotlinx.coroutines.delay(backoffMs)
             }
         }
-        return false
+        return -1
     }
 
     private suspend fun runGetForBodyWithRetry(url: String, attempts: Int): String? {
