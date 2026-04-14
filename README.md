@@ -216,6 +216,21 @@ Lệnh thường dùng (Windows PowerShell):
 .\gradlew.bat :app:assembleRelease
 ```
 
+## Cau Hinh WOLRelay (tu chon)
+
+Ung dung da ho tro WOLRelay API voi endpoint POST /wake (JSON: {"mac":"AA:BB:CC:DD:EE:FF"}).
+
+Them URL relay vao file gradle.properties (root project):
+
+```properties
+WOL_RELAY_URL=http://your-relay-host:5000
+```
+
+Khi bam Wake TV:
+
+- Neu co WOL_RELAY_URL: app thu goi relay truoc.
+- Neu relay that bai: app tu fallback sang magic packet WoL noi bo trong LAN.
+
 Lưu ý: release signing hiện tại có thể chưa được cấu hình sẵn trong workspace local.
 
 ---

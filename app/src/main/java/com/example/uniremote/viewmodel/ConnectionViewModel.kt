@@ -1,6 +1,7 @@
 package com.example.uniremote.viewmodel
 
 import android.app.Application
+import com.example.uniremote.BuildConfig
 import com.example.uniremote.data.DeviceRepository
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
@@ -313,6 +314,7 @@ internal class ConnectionViewModel(
     fun wakeTV() {
         val device = connectedDevice.value ?: return
         val cleanMac = device.mac.replace(":", "").replace("-", "")
+        val relayUrl = BuildConfig.WOL_RELAY_URL.trim()
 
         scope.launch(Dispatchers.IO) {
             if (device.brand != TvBrand.ROKU) {
@@ -320,8 +322,17 @@ internal class ConnectionViewModel(
                     emitToast("Thieu dia chi MAC hop le de bat TV bang WoL")
                     return@launch
                 }
-                runCatching { WakeOnLanUtil.sendMagicPacket(device.mac) }
-                    .onFailure { reportFailure("wakeTV", it, "Khong gui duoc goi WoL") }
+                val relaySent = if (relayUrl.isNotBlank()) {
+                    runCatching { WakeOnLanUtil.sendMagicPacketViaRelay(device.mac, relayUrl) }
+                        .onFailure { reportFailure("wakeTV:relay", it, "WOLRelay that bai, thu WoL noi bo") }
+                        .isSuccess
+                } else {
+                    false
+                }
+                if (!relaySent) {
+                    runCatching { WakeOnLanUtil.sendMagicPacket(device.mac) }
+                        .onFailure { reportFailure("wakeTV", it, "Khong gui duoc goi WoL") }
+                }
                 return@launch
             }
 
@@ -331,8 +342,17 @@ internal class ConnectionViewModel(
             // 3) Send Home key to wake from standby-ready state
             val wolAttempted = cleanMac.length == 12
             if (wolAttempted) {
-                runCatching { WakeOnLanUtil.sendMagicPacket(device.mac) }
-                    .onFailure { reportFailure("rokuWake:wol", it, "WoL that bai, dang thu ECP") }
+                val relaySent = if (relayUrl.isNotBlank()) {
+                    runCatching { WakeOnLanUtil.sendMagicPacketViaRelay(device.mac, relayUrl) }
+                        .onFailure { reportFailure("rokuWake:relay", it, "WOLRelay that bai, dang thu WoL noi bo") }
+                        .isSuccess
+                } else {
+                    false
+                }
+                if (!relaySent) {
+                    runCatching { WakeOnLanUtil.sendMagicPacket(device.mac) }
+                        .onFailure { reportFailure("rokuWake:wol", it, "WoL that bai, dang thu ECP") }
+                }
                 delay(4_000)
             }
 

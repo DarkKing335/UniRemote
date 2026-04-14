@@ -33,6 +33,7 @@ class DeviceConnectionManager(
     var onTokenReceived: ((String) -> Unit)? = null
     private val TAG = "DeviceConnManager"
     private val AUTO_WAKE_DELAY_MS = 15 * 60 * 1000L
+    private val POWER_KEY_GRACE_MS = 2 * 60 * 1000L
     private val CONNECT_TIMEOUT_MS = 10_000L   // raised from 4s — some TVs are slow to respond
     private val SILENT_CONNECT_TIMEOUT_MS = 5_000L  // shorter for background auto-connect
     private val CONNECT_VALIDATE_TIMEOUT_MS = 2_500L
@@ -58,6 +59,8 @@ class DeviceConnectionManager(
     private var controller: TvController? = null
     private var googleTvPairingCtrl: GoogleTvController? = null
     private var autoWakeJob: Job? = null
+    private var lastPowerKeyAtMs: Long = 0L
+    private var lastPowerKeyDeviceId: String? = null
     private val connectMutex = Mutex()
 
     private data class ControllerCandidate(
@@ -191,7 +194,16 @@ class DeviceConnectionManager(
     }
 
     suspend fun sendKey(key: TvKey) {
-        withContext(Dispatchers.IO) { requireController().sendKey(key) }
+        withContext(Dispatchers.IO) {
+            val activeDevice = _connectedDevice.value
+            if (key == TvKey.POWER && activeDevice != null) {
+                // User explicitly requested a power toggle. If transport drops right after,
+                // treat it as intentional shutdown and do not schedule delayed auto-WoL.
+                lastPowerKeyAtMs = System.currentTimeMillis()
+                lastPowerKeyDeviceId = activeDevice.id
+            }
+            requireController().sendKey(key)
+        }
     }
 
     suspend fun sendText(text: String) {
@@ -521,6 +533,12 @@ class DeviceConnectionManager(
     }
 
     private fun scheduleAutoWake(device: TvDevice, reason: String) {
+        val now = System.currentTimeMillis()
+        if (lastPowerKeyDeviceId == device.id && now - lastPowerKeyAtMs <= POWER_KEY_GRACE_MS) {
+            Log.i(TAG, "Skip auto-wake for ${device.name}: disconnect followed user POWER key")
+            return
+        }
+
         if (device.mac.isBlank()) {
             Log.w(TAG, "Skip auto-wake for ${device.name}: missing MAC. reason=$reason")
             return
