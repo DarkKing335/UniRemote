@@ -22,7 +22,8 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 class LgWebOsController(
     override val device: TvDevice,
-    private val onTokenReceived: (String) -> Unit = {}
+    private val onTokenReceived: (String) -> Unit = {},
+    private val onUnexpectedDisconnect: (String) -> Unit = {}
 ) : TvController {
 
     companion object {
@@ -79,6 +80,7 @@ class LgWebOsController(
     private var pointerSocket: WebSocket? = null
     // @Volatile: written from OkHttp's websocket callback thread, read from coroutine threads
     @Volatile private var connected = false
+    @Volatile private var manualCloseRequested = false
     // Live token — may differ from device.token if TV issued a new key this session
     @Volatile private var liveToken: String? = device.token
     private val msgId = AtomicInteger(0)
@@ -113,6 +115,7 @@ class LgWebOsController(
     }.toString()
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        manualCloseRequested = false
         if (!TransportSecurityPolicy.allowInsecureDeviceProtocol("LG WebOS SSAP over ws://", host = device.ip)) {
             return@withContext false
         }
@@ -157,12 +160,22 @@ class LgWebOsController(
                 }
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                val wasConnected = connected
                 connected = false
+                if (wasConnected && !manualCloseRequested) {
+                    onUnexpectedDisconnect("LG WebOS WebSocket failure: ${t.message ?: "unknown"}")
+                }
+                manualCloseRequested = false
                 clearPendingRequests()
                 if (!deferred.isCompleted) deferred.complete(false)
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                val wasConnected = connected
                 connected = false
+                if (wasConnected && !manualCloseRequested) {
+                    onUnexpectedDisconnect("LG WebOS WebSocket closed: $reason")
+                }
+                manualCloseRequested = false
                 clearPendingRequests()
             }
         })
@@ -178,6 +191,7 @@ class LgWebOsController(
     }
 
     override fun disconnect() {
+        manualCloseRequested = true
         pointerSocket?.close(1000, null)
         webSocket?.close(1000, "User disconnected")
         webSocket = null

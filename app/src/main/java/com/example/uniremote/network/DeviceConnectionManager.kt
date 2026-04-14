@@ -6,15 +6,22 @@ import com.example.uniremote.BuildConfig
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
 import com.example.uniremote.domain.ConnectionStatus
+import com.example.uniremote.util.WakeOnLanUtil
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 
 /**
  * Handles the connection lifecycle, protocol initialization, and command dispatching
@@ -25,9 +32,11 @@ class DeviceConnectionManager(
 ) {
     var onTokenReceived: ((String) -> Unit)? = null
     private val TAG = "DeviceConnManager"
+    private val AUTO_WAKE_DELAY_MS = 15 * 60 * 1000L
     private val CONNECT_TIMEOUT_MS = 10_000L   // raised from 4s — some TVs are slow to respond
     private val SILENT_CONNECT_TIMEOUT_MS = 5_000L  // shorter for background auto-connect
     private val CONNECT_VALIDATE_TIMEOUT_MS = 2_500L
+    private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _connectionStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Disconnected)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -48,6 +57,7 @@ class DeviceConnectionManager(
 
     private var controller: TvController? = null
     private var googleTvPairingCtrl: GoogleTvController? = null
+    private var autoWakeJob: Job? = null
     private val connectMutex = Mutex()
 
     private data class ControllerCandidate(
@@ -76,6 +86,7 @@ class DeviceConnectionManager(
      */
     suspend fun tryConnectSilently(device: TvDevice): Boolean {
         return runCatching {
+            cancelAutoWakeJob()
             controller?.disconnect()
             val factories = controllerFactories(device)
             if (factories.isEmpty()) {
@@ -89,6 +100,7 @@ class DeviceConnectionManager(
                 val success = attemptConnectAndValidate(ctrl, SILENT_CONNECT_TIMEOUT_MS)
                 if (success) {
                     controller = ctrl
+                    cancelAutoWakeJob()
                     _connectedDevice.value = device
                     _connectionStatus.value = ConnectionStatus.Connected
                     _isAdbFallbackMode.value = ctrl is AndroidTvController
@@ -106,6 +118,7 @@ class DeviceConnectionManager(
 
     suspend fun connectTo(device: TvDevice): Boolean {
         return connectMutex.withLock {
+            cancelAutoWakeJob()
             _connectionStatus.value = ConnectionStatus.Connecting
             _connectedDevice.value = device
             _isAdbFallbackMode.value = false  // reset before each new connection attempt
@@ -252,7 +265,10 @@ class DeviceConnectionManager(
     // ── Google TV Pairing ──────────────────────────────────────────────────────
     suspend fun startGoogleTvPairing(device: TvDevice): Boolean {
         _pairingState.value = PairingState.IDLE
-        val ctrl = GoogleTvController(device) { state -> _pairingState.value = state }
+        val ctrl = GoogleTvController(
+            device = device,
+            onPairingState = { state -> _pairingState.value = state }
+        )
         googleTvPairingCtrl = ctrl
         return ctrl.pair()
     }
@@ -291,7 +307,11 @@ class DeviceConnectionManager(
                 priority = 100,
                 name = "SamsungTvController",
                 supports = { true },
-                factory = { d -> SamsungTvController(d) { token -> onTokenReceived?.invoke(token) } }
+                factory = { d -> SamsungTvController(
+                    d,
+                    onTokenReceived = { token -> onTokenReceived?.invoke(token) },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             )
         )
 
@@ -300,7 +320,11 @@ class DeviceConnectionManager(
                 priority = 100,
                 name = "LgWebOsController",
                 supports = { true },
-                factory = { d -> LgWebOsController(d) { token -> onTokenReceived?.invoke(token) } }
+                factory = { d -> LgWebOsController(
+                    d,
+                    onTokenReceived = { token -> onTokenReceived?.invoke(token) },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             )
         )
 
@@ -351,7 +375,11 @@ class DeviceConnectionManager(
                 priority = 90,
                 name = "GoogleTvController",
                 supports = { true },
-                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+                factory = { d -> GoogleTvController(
+                    device = d,
+                    onPairingState = { state -> _pairingState.value = state },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             ),
             ControllerCandidate(
                 priority = 10,
@@ -372,7 +400,11 @@ class DeviceConnectionManager(
                 priority = 100,
                 name = "GoogleTvController",
                 supports = { true },
-                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+                factory = { d -> GoogleTvController(
+                    device = d,
+                    onPairingState = { state -> _pairingState.value = state },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             ),
             ControllerCandidate(
                 priority = 10,
@@ -387,7 +419,11 @@ class DeviceConnectionManager(
                 priority = 100,
                 name = "GoogleTvController",
                 supports = { true },
-                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+                factory = { d -> GoogleTvController(
+                    device = d,
+                    onPairingState = { state -> _pairingState.value = state },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             ),
             ControllerCandidate(
                 priority = 80,
@@ -415,19 +451,31 @@ class DeviceConnectionManager(
                 priority = 100,
                 name = "SamsungTvController",
                 supports = { true },
-                factory = { d -> SamsungTvController(d) { token -> onTokenReceived?.invoke(token) } }
+                factory = { d -> SamsungTvController(
+                    d,
+                    onTokenReceived = { token -> onTokenReceived?.invoke(token) },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             ),
             ControllerCandidate(
                 priority = 90,
                 name = "LgWebOsController",
                 supports = { true },
-                factory = { d -> LgWebOsController(d) { token -> onTokenReceived?.invoke(token) } }
+                factory = { d -> LgWebOsController(
+                    d,
+                    onTokenReceived = { token -> onTokenReceived?.invoke(token) },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             ),
             ControllerCandidate(
                 priority = 80,
                 name = "GoogleTvController",
                 supports = { true },
-                factory = { d -> GoogleTvController(d) { state -> _pairingState.value = state } }
+                factory = { d -> GoogleTvController(
+                    device = d,
+                    onPairingState = { state -> _pairingState.value = state },
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
+                ) }
             ),
             ControllerCandidate(
                 priority = 10,
@@ -461,8 +509,63 @@ class DeviceConnectionManager(
     }
 
     fun onCleared() {
+        cancelAutoWakeJob()
+        managerScope.cancel()
         controller?.disconnect()
         googleTvPairingCtrl = null
+    }
+
+    private fun cancelAutoWakeJob() {
+        autoWakeJob?.cancel()
+        autoWakeJob = null
+    }
+
+    private fun scheduleAutoWake(device: TvDevice, reason: String) {
+        if (device.mac.isBlank()) {
+            Log.w(TAG, "Skip auto-wake for ${device.name}: missing MAC. reason=$reason")
+            return
+        }
+        val eligible = device.brand in setOf(
+            TvBrand.SAMSUNG,
+            TvBrand.LG,
+            TvBrand.SONY,
+            TvBrand.GOOGLE_TV,
+            TvBrand.ANDROID,
+            TvBrand.XIAOMI,
+            TvBrand.TCL,
+            TvBrand.TOSHIBA,
+            TvBrand.SHARP,
+            TvBrand.PHILIPS,
+            TvBrand.FIRE_TV,
+            TvBrand.HISENSE
+        )
+        if (!eligible) {
+            return
+        }
+
+        autoWakeJob?.cancel()
+        autoWakeJob = managerScope.launch {
+            Log.i(TAG, "Scheduling WoL for ${device.name} in 15 minutes. reason=$reason")
+            delay(AUTO_WAKE_DELAY_MS)
+
+            val activeDevice = _connectedDevice.value
+            if (_connectionStatus.value == ConnectionStatus.Connected || activeDevice?.id == device.id) {
+                Log.i(TAG, "Auto-wake skipped for ${device.name}: connection restored before timer elapsed")
+                return@launch
+            }
+
+            runCatching {
+                WakeOnLanUtil.sendMagicPacket(device.mac)
+                Log.i(TAG, "WoL sent for ${device.name}")
+                delay(20_000L)
+                val retryTarget = _connectedDevice.value ?: device
+                if (_connectionStatus.value != ConnectionStatus.Connected) {
+                    tryConnectSilently(retryTarget)
+                }
+            }.onFailure {
+                Log.w(TAG, "Auto-wake failed for ${device.name}: ${it.message}")
+            }
+        }
     }
 
     private fun requireController(): TvController {
@@ -472,7 +575,8 @@ class DeviceConnectionManager(
     private fun isCompatibilityBlocked(device: TvDevice): Boolean {
         if (BuildConfig.ENABLE_INSECURE_DEVICE_PROTOCOLS) return false
         return when (device.brand) {
-            TvBrand.LG, TvBrand.ROKU -> true
+            TvBrand.LG -> true
+            TvBrand.ROKU -> false
             TvBrand.SAMSUNG, TvBrand.UNKNOWN -> device.port != 8002
             TvBrand.SONY -> true
             else -> false

@@ -40,7 +40,8 @@ private sealed class CtrlCmd {
 // ─────────────────────────────────────────────────────────────────────────────
 class GoogleTvController(
     override val device: TvDevice,
-    val onPairingState: (PairingState) -> Unit = {}
+    val onPairingState: (PairingState) -> Unit = {},
+    val onUnexpectedDisconnect: (String) -> Unit = {}
 ) : TvController {
 
     // ── Key map (Android KEYCODE values) ──────────────────────────────────────
@@ -77,6 +78,7 @@ class GoogleTvController(
     private var controlJob: Job? = null
     // @Volatile: written from control session coroutine, read from VM coroutines
     @Volatile private var connected = false
+    @Volatile private var manualDisconnectRequested = false
     @Volatile private var imeCounter = 0
     @Volatile private var imeFieldCounter = 0
 
@@ -482,6 +484,7 @@ class GoogleTvController(
     // ── TvController: connect / control ───────────────────────────────────────
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        manualDisconnectRequested = false
         runCatching {
             val sock = openSslSocket(CONTROL_PORT)
 
@@ -509,6 +512,7 @@ class GoogleTvController(
     }
 
     private suspend fun CoroutineScope.runSession(sock: SSLSocket, readyDeferred: CompletableDeferred<Boolean>) {
+        val startedConnected = connected
         try {
             // State 5: consume initial TV message
             sock.soTimeout = 5_000
@@ -561,8 +565,16 @@ class GoogleTvController(
         } catch (e: Exception) {
             Log.e(TAG, "Session error: ${e.message}")
             if (!readyDeferred.isCompleted) readyDeferred.complete(false)
+            val wasConnected = connected || startedConnected
+            if (wasConnected && !manualDisconnectRequested) {
+                onUnexpectedDisconnect("Google TV control session error: ${e.message ?: "unknown"}")
+            }
         }
-        finally { connected = false; runCatching { sock.close() } }
+        finally {
+            connected = false
+            manualDisconnectRequested = false
+            runCatching { sock.close() }
+        }
     }
 
     /** Wait until a message with [expectedTag] arrives; respond to pings. */
@@ -592,6 +604,7 @@ class GoogleTvController(
     // ── TvController interface ────────────────────────────────────────────────
 
     override fun disconnect() {
+        manualDisconnectRequested = true
         cmdChannel.trySend(CtrlCmd.Exit)
         controlJob?.cancel(); controlJob = null
         controllerScope.coroutineContext[Job]?.cancelChildren()

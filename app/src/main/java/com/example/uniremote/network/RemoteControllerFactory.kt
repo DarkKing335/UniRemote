@@ -11,7 +11,7 @@ object RemoteControllerFactory {
         return when (device.brand) {
             TvBrand.SAMSUNG   -> SamsungTvController(device)
             TvBrand.LG        -> LgWebOsController(device)
-            TvBrand.ROKU      -> RokuTvController(device)
+            TvBrand.ROKU      -> RokuController(device)
             TvBrand.PANASONIC -> PanasonicTvController(device)
             TvBrand.VIZIO     -> VizioTvController(device)
             TvBrand.HISENSE   -> {

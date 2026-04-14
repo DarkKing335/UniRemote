@@ -19,7 +19,8 @@ import java.util.concurrent.TimeUnit
  */
 class SamsungTvController(
     override val device: TvDevice,
-    private val onTokenReceived: (String) -> Unit = {}
+    private val onTokenReceived: (String) -> Unit = {},
+    private val onUnexpectedDisconnect: (String) -> Unit = {}
 ) : TvController {
 
     companion object {
@@ -89,6 +90,7 @@ class SamsungTvController(
     private var webSocket: WebSocket? = null
     // @Volatile: written from OkHttp's websocket thread, read from coroutine threads
     @Volatile private var connected = false
+    @Volatile private var manualCloseRequested = false
     // Holds the most recent token (may differ from device.token if TV issued a new one)
     @Volatile private var liveToken: String? = device.token
 
@@ -113,6 +115,7 @@ class SamsungTvController(
     }
 
     override suspend fun connect(): Boolean = withContext(Dispatchers.IO) {
+        manualCloseRequested = false
         val secureTransport = device.port == 8002
         if (!secureTransport && !canUseInsecureSamsungProtocol()) {
             return@withContext false
@@ -167,11 +170,21 @@ class SamsungTvController(
                 }
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                val wasConnected = connected
                 connected = false
+                if (wasConnected && !manualCloseRequested) {
+                    onUnexpectedDisconnect("Samsung WebSocket failure: ${t.message ?: "unknown"}")
+                }
+                manualCloseRequested = false
                 if (!deferred.isCompleted) deferred.complete(false)
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                val wasConnected = connected
                 connected = false
+                if (wasConnected && !manualCloseRequested) {
+                    onUnexpectedDisconnect("Samsung WebSocket closed: $reason")
+                }
+                manualCloseRequested = false
             }
         })
 
@@ -188,6 +201,7 @@ class SamsungTvController(
     }
 
     override fun disconnect() {
+        manualCloseRequested = true
         webSocket?.close(1000, "User disconnected")
         webSocket = null
         connected = false
