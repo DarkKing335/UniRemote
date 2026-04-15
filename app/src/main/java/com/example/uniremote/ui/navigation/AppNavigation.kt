@@ -40,12 +40,21 @@ import com.example.uniremote.ui.screens.CastScreen
 import com.example.uniremote.ui.screens.MainRemoteScreen
 import com.example.uniremote.ui.screens.SettingsScreen
 import com.example.uniremote.viewmodel.RemoteViewModel
+import kotlinx.coroutines.flow.Flow
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(
+    vm: RemoteViewModel = viewModel(),
+    externalNavigationEvents: Flow<NavigationTab>? = null
+) {
     var currentScreen by rememberSaveable { mutableStateOf(NavigationTab.REMOTE) }
-    val vm: RemoteViewModel = viewModel()
     val pairingState by vm.pairingState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(externalNavigationEvents) {
+        externalNavigationEvents?.collect { target ->
+            currentScreen = target
+        }
+    }
 
     // Global PIN dialog — rendered at root level so it appears over ANY tab
     GlobalPairingDialog(

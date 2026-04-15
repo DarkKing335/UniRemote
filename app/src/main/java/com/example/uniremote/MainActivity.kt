@@ -1,6 +1,10 @@
 package com.example.uniremote
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -8,14 +12,40 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.example.uniremote.ui.components.NavigationTab
 import com.example.uniremote.ui.navigation.AppNavigation
 import com.example.uniremote.ui.theme.UniRemoteTheme
+import com.example.uniremote.viewmodel.RemoteViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 
 class MainActivity : ComponentActivity() {
+
+    private val remoteViewModel: RemoteViewModel by viewModels()
+    private val navigationEvents = MutableSharedFlow<NavigationTab>(extraBufferCapacity = 1)
+
+    private val rokuBroadcastReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                "QUERY_APPS_COMPLETED" -> {
+                    if (!remoteViewModel.isLoadingApps.value) {
+                        remoteViewModel.loadInstalledApps()
+                    }
+                }
+
+                "ROKU_NETWORK_ERROR" -> {
+                    remoteViewModel.disconnect()
+                    remoteViewModel.scanDevices()
+                    navigationEvents.tryEmit(NavigationTab.SETTINGS)
+                }
+            }
+        }
+    }
 
     // Runtime permission launcher for ACCESS_FINE_LOCATION.
     // Required on Android 8–9 (API 26–28) to read the WiFi SSID via WifiManager.
@@ -63,8 +93,29 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             UniRemoteTheme {
-                AppNavigation()
+                AppNavigation(
+                    vm = remoteViewModel,
+                    externalNavigationEvents = navigationEvents
+                )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val localBroadcastManager = LocalBroadcastManager.getInstance(this)
+        localBroadcastManager.registerReceiver(
+            rokuBroadcastReceiver,
+            IntentFilter("QUERY_APPS_COMPLETED")
+        )
+        localBroadcastManager.registerReceiver(
+            rokuBroadcastReceiver,
+            IntentFilter("ROKU_NETWORK_ERROR")
+        )
+    }
+
+    override fun onStop() {
+        LocalBroadcastManager.getInstance(this).unregisterReceiver(rokuBroadcastReceiver)
+        super.onStop()
     }
 }

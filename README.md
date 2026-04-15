@@ -233,6 +233,11 @@ Khi bam Wake TV:
 
 Lưu ý: release signing hiện tại có thể chưa được cấu hình sẵn trong workspace local.
 
+APK mới sau lần build gần nhất:
+
+- `E:\App\UniRemote\app\build\outputs\apk\debug\app-debug.apk`
+- `app/build/outputs/apk/debug/app-debug.apk`
+
 ---
 
 ## Team A1

@@ -28,10 +28,13 @@ class RokuTvController(override val device: TvDevice) : TvController {
             conn.connectTimeout = 3000
             conn.requestMethod = "GET"
             val responseCode = conn.responseCode
-            responseCode == 200
+            if (responseCode == 200) {
+                return@withContext true
+            }
+            throw java.net.ConnectException("ECP Connection Denied (Code: $responseCode)")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect to Roku at ${device.ip}", e)
-            false
+            Log.w(TAG, "Failed to connect to Roku at ${device.ip} via 8060. Attempting Telnet port 8023 fallback.", e)
+            return@withContext checkTelnetConnection()
         }
     }
 
@@ -81,8 +84,13 @@ class RokuTvController(override val device: TvDevice) : TvController {
             conn.connectTimeout = 2000
             val code = conn.responseCode
             Log.d(TAG, "POST $path returned $code")
+            if (code == 403 || code == 401) {
+                // Network Access is likely Disabled. Fallback to Telnet 8023
+                throw java.net.ConnectException("ECP Access Denied (Code: $code)")
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error POSTing to Roku: $path", e)
+            Log.w(TAG, "Standard POST to $path failed (${e.message}), attempting Telnet fallback on port 8023")
+            executeViaTelnet("POST", path)
         }
     }
 
@@ -126,5 +134,37 @@ class RokuTvController(override val device: TvDevice) : TvController {
             apps.add(TvApp(id = id, name = name, iconUrl = "$baseUrl/query/icon/$id"))
         }
         return apps
+    }
+
+    private suspend fun executeViaTelnet(method: String, path: String) = withContext(Dispatchers.IO) {
+        try {
+            java.net.Socket().use { socket ->
+                socket.connect(java.net.InetSocketAddress(device.ip, 8023), 2000)
+                socket.soTimeout = 2000
+                socket.getOutputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
+                    val curlCommand = if (method == "POST") {
+                        "curl -d '' \"http://localhost:8060$path\"\n"
+                    } else {
+                        "curl \"http://localhost:8060$path\"\n"
+                    }
+                    writer.write(curlCommand)
+                    writer.flush()
+                }
+            }
+            Log.d(TAG, "Successfully submitted fallback $method to $path via Telnet")
+        } catch (e: Exception) {
+            Log.e(TAG, "Telnet fallback for $method $path failed", e)
+        }
+    }
+
+    private suspend fun checkTelnetConnection(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            java.net.Socket().use { socket ->
+                socket.connect(java.net.InetSocketAddress(device.ip, 8023), 2000)
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
     }
 }

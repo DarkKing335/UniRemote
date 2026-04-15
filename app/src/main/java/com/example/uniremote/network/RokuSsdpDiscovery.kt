@@ -1,9 +1,13 @@
 package com.example.uniremote.network
 
+import android.content.Context
 import android.util.Log
+import com.example.uniremote.data.AppPreferences
 import com.example.uniremote.data.TvBrand
 import com.example.uniremote.data.TvDevice
+import com.example.uniremote.data.toDomain
 import com.example.uniremote.util.DeviceIdUtil
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -30,8 +34,14 @@ private const val TAG = "RokuSsdpDiscovery"
  * 4. Build Roku [TvDevice] with friendly name and type.
  */
 internal class RokuSsdpDiscovery(
-    private val timeoutMs: Int = 3_500
+    context: Context,
+    private val timeoutMs: Int = 3_500,
+    private val rounds: Int = 3,
+    private val retryDelayMs: Long = 1_800L
 ) {
+
+    private val appContext = context.applicationContext
+    private val prefs = AppPreferences(appContext)
 
     internal data class ParsedRokuDescription(
         val friendlyName: String,
@@ -41,22 +51,41 @@ internal class RokuSsdpDiscovery(
     )
 
     fun discover(): Flow<List<TvDevice>> = flow {
-        val locationToSenderIp = probeRokuLocations()
-        if (locationToSenderIp.isEmpty()) {
-            emit(emptyList())
-            return@flow
-        }
+        val devicesByIp = linkedMapOf<String, TvDevice>()
 
-        val devices = mutableListOf<TvDevice>()
-        for ((location, senderIp) in locationToSenderIp) {
-            val parsed = fetchRokuDevice(location, senderIp)
-            if (parsed != null) {
-                devices += parsed
+        // Keep previously connected Roku devices available even when SSDP is flaky.
+        cachedKnownRokuDevices().forEach { cached ->
+            devicesByIp.putIfAbsent(cached.ip, cached)
+        }
+        emit(devicesByIp.values.toList())
+
+        repeat(rounds.coerceAtLeast(1)) { round ->
+            val locationToSenderIp = probeRokuLocations()
+            for ((location, senderIp) in locationToSenderIp) {
+                val parsed = fetchRokuDevice(location, senderIp)
+                if (parsed != null) {
+                    devicesByIp[parsed.ip] = parsed
+                }
+            }
+
+            emit(devicesByIp.values.toList())
+
+            if (round < rounds - 1) {
+                delay(retryDelayMs)
             }
         }
-
-        emit(devices.distinctBy { it.id })
     }.flowOn(Dispatchers.IO)
+
+    private suspend fun cachedKnownRokuDevices(): List<TvDevice> {
+        return runCatching {
+            prefs.getKnownDevicesOnce()
+                .map { it.toDomain() }
+                .filter { it.brand == TvBrand.ROKU && isLanIpv4(it.ip) }
+                .sortedByDescending { it.lastConnectedMs }
+        }.onFailure {
+            Log.w(TAG, "Failed to read cached Roku devices", it)
+        }.getOrDefault(emptyList())
+    }
 
     companion object {
         fun buildManualRokuDevice(ip: String, name: String = "Roku (Manual IP)"): TvDevice? {

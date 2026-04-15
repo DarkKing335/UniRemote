@@ -41,7 +41,7 @@ class RemoteControlDiscovery(context: Context) {
         )
     )
 
-    private val rokuSsdpDiscovery = RokuSsdpDiscovery()
+    private val rokuSsdpDiscovery = RokuSsdpDiscovery(context)
 
     fun discover(): Flow<List<TvDevice>> {
         return combine(

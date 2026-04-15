@@ -354,7 +354,7 @@ class DeviceConnectionManager(
                 priority = 100,
                 name = "RokuController",
                 supports = { true },
-                factory = { d -> RokuController(d) }
+                factory = { d -> RokuController(d, appContext) }
             )
         )
 
