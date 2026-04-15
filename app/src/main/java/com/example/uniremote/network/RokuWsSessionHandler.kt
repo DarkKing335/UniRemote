@@ -51,11 +51,11 @@ internal class RokuWsSessionHandler(
     @Volatile
     private var activeIp: String? = null
 
-    @Volatile
-    private var pendingCommand: WsCommand? = null
+    @Volatile private var pendingCommand: WsCommand? = null
 
-    private var authDeferred: CompletableDeferred<Boolean>? = null
-    private var queryAppsDeferred: CompletableDeferred<String?>? = null
+    // Accessed from both IO coroutine and OkHttp callback thread — must be @Volatile.
+    @Volatile private var authDeferred: CompletableDeferred<Boolean>? = null
+    @Volatile private var queryAppsDeferred: CompletableDeferred<String?>? = null
 
     suspend fun connectAndAuthenticate(ip: String): Boolean = withContext(Dispatchers.IO) {
         if (authenticated && socket != null && activeIp == ip) {
@@ -184,6 +184,11 @@ internal class RokuWsSessionHandler(
 
     fun close(reason: String) {
         Log.d(WS_TAG, "Closing Roku WS: $reason")
+        // Complete pending deferreds BEFORE nulling them.
+        // If close() is called externally while authWaiter.await() is running (e.g. on retry),
+        // failing to complete here would leave authWaiter blocked until the 6s timeout.
+        authDeferred?.complete(false)
+        queryAppsDeferred?.complete(null)
         socket?.close(1000, reason)
         socket = null
         authenticated = false
@@ -239,7 +244,8 @@ internal class RokuWsSessionHandler(
         val json = JSONObject()
         json.put("param-response", response)
         json.put("request", "authenticate")
-        json.put("request-id", requestId.getAndIncrement().toString())
+        // APK: Integer.valueOf(getAndIncrement()) — request-id is an integer, not a string.
+        json.put("request-id", requestId.getAndIncrement())
         return json.toString()
     }
 
@@ -247,7 +253,8 @@ internal class RokuWsSessionHandler(
         val normalizedRequest = normalizeRequest(command.request)
         val json = JSONObject()
         json.put("request", normalizedRequest)
-        json.put("request-id", requestId.getAndIncrement().toString())
+        // APK: Integer.valueOf(getAndIncrement()) — request-id is an integer, not a string.
+        json.put("request-id", requestId.getAndIncrement())
 
         when (normalizedRequest) {
             "launch" -> if (!command.value.isNullOrBlank()) {

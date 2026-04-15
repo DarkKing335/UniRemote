@@ -101,7 +101,7 @@ class RokuController(
 
     companion object {
         const val ROKU_NETWORK_ACCESS_LIMITED_MESSAGE =
-            "Roku device is not accepting remote connections (Network Access may be restricted)"
+            "Roku device is not accepting remote connections. On TV go to Settings > System > Advanced system settings > Control by mobile apps > Network access and set it to Enabled."
 
         internal const val ROKU_REMOTE_BLOCKED_MESSAGE = ROKU_NETWORK_ACCESS_LIMITED_MESSAGE
 

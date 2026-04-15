@@ -226,6 +226,12 @@ class RemoteViewModel @JvmOverloads constructor(
 
     fun loadInstalledApps() = connectionViewModel.loadInstalledApps()
 
+    /**
+     * APK-faithful entry point for QUERY_APPS_COMPLETED broadcast.
+     * Passes the raw XML from the WS response directly to the VM layer to avoid a re-fetch.
+     */
+    fun acceptRokuQueryAppsResult(xml: String) = connectionViewModel.acceptRokuQueryAppsResult(xml)
+
     fun launchApp(appId: String) = connectionViewModel.launchApp(appId)
 
     internal suspend fun launchAppInternal(appId: String) = connectionViewModel.launchAppInternal(appId)

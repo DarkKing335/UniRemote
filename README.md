@@ -34,7 +34,7 @@ Dự án không phụ thuộc IR (hồng ngoại). Thay vào đó là hệ thố
 - **Samsung**: WebSocket remote API (`ws/wss`) + token.
 - **LG webOS**: SSAP WebSocket + `client-key`.
 - **Android TV / Google TV / Xiaomi / nhiều Sony Android TV**: Google TV Remote Protocol V2 (`6466/6467`) + PIN pairing.
-- **Roku**: ECP HTTP API (`8060`) - không cần pairing token.
+- **Roku**: ECP HTTP (`8060`) + WebSocket ECP fallback (`ws://IP:8060/ecp-session`, subprotocol `ecp-2`) — tự động chuyển sang WS khi HTTP bị chặn (401/403) với SHA-1 challenge-response auth.
 - **Sony Bravia đời cũ (non-Android)**: IRCC-IP SOAP/JSON + PSK token.
 - **Fire TV / Android-based fallback**: ADB-over-network (`5555`) khi protocol native thất bại.
 
@@ -85,11 +85,16 @@ Với phần lớn Smart TV, pairing chỉ cần thực hiện 1 lần:
 - Lần sau:
   - Tái sử dụng `client-key` để kết nối nhanh.
 
-#### Roku TV (ECP)
+#### Roku TV (ECP + WebSocket Fallback)
 
-- Không cần pairing.
-- Không cần token.
-- App gọi HTTP command trực tiếp trong cùng mạng LAN.
+- Không cần pairing token.
+- Mặc định dùng HTTP ECP (`/keypress/*`, `/launch/*`, `/query/apps`) trực tiếp trong LAN.
+- Khi **"Control by mobile apps" bị tắt** (Network Access = Disabled), HTTP trả về 401/403.
+- App tự động chuyển sang **WebSocket ECP fallback**:
+  - Endpoint: `ws://IP:8060/ecp-session`, subprotocol: `ecp-2`
+  - Auth: SHA-1(challenge + static salt) → Base64 → gửi response
+  - Sau auth thành công, toàn bộ lệnh (keypress/launch/query-apps) đi qua WS frame
+  - Không cần thao tác gì từ người dùng — fallback hoàn toàn tự động
 
 #### Sony Bravia non-Android (IRCC-IP fallback)
 
@@ -233,10 +238,15 @@ Khi bam Wake TV:
 
 Lưu ý: release signing hiện tại có thể chưa được cấu hình sẵn trong workspace local.
 
-APK mới sau lần build gần nhất:
+APK mới sau lần build gần nhất (2026-04-15):
 
-- `E:\App\UniRemote\app\build\outputs\apk\debug\app-debug.apk`
-- `app/build/outputs/apk/debug/app-debug.apk`
+| Variant | Đường dẫn |
+|---|---|
+| Debug (đầy đủ tính năng) | `app/build/outputs/apk/debug/app-debug.apk` |
+| Release unsigned | `app/build/outputs/apk/release/app-release-unsigned.apk` |
+| Release debug-signed | `app/build/outputs/apk/release/app-release-internal-debugsigned.apk` |
+
+> **Ghi chú build release:** `isMinifyEnabled = true`, `isShrinkResources = true`. `ENABLE_INSECURE_DEVICE_PROTOCOLS = false` trong release — các giao thức cleartext (LG, Sony) sẽ bị tắt; chỉ Roku HTTP/WS và Samsung WSS hoạt động đầy đủ.
 
 ---
 

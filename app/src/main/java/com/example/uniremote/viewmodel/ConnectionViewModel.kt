@@ -1,6 +1,7 @@
 package com.example.uniremote.viewmodel
 
 import android.app.Application
+import android.util.Log
 import com.example.uniremote.BuildConfig
 import com.example.uniremote.data.DeviceRepository
 import com.example.uniremote.data.TvBrand
@@ -395,6 +396,70 @@ internal class ConnectionViewModel(
                 _isLoadingApps.value = false
             }
         }
+    }
+
+    /**
+     * APK-faithful: called when the QUERY_APPS_COMPLETED local broadcast fires.
+     * The broadcast carries the already-decoded XML in its QUERY_APPS extra.
+     * Parsing and merging it directly avoids a redundant HTTP re-fetch.
+     * Mirrors the behavior of a7/b (QueryAppsBroadcastReceiver) in the reference APK.
+     */
+    fun acceptRokuQueryAppsResult(xmlContent: String) {
+        scope.launch {
+            _isLoadingApps.value = true
+            try {
+                val apps = parseRokuAppsXml(xmlContent)
+                if (apps.isNotEmpty()) {
+                    _installedApps.value = mergeCoreAppsWithSynced(apps)
+                }
+            } catch (e: Exception) {
+                reportFailure("acceptRokuQueryAppsResult", e, "Khong the phan tich danh sach ung dung Roku")
+            } finally {
+                _isLoadingApps.value = false
+            }
+        }
+    }
+
+    /**
+     * Parses Roku ECP /query/apps XML (same format as RokuController.getInstalledApps).
+     * Uses XmlPullParser — same parser used in RokuController — to avoid a regex dependency.
+     */
+    private fun parseRokuAppsXml(xml: String): List<TvApp> {
+        val apps = mutableListOf<TvApp>()
+        runCatching {
+            val factory = org.xmlpull.v1.XmlPullParserFactory.newInstance()
+            val parser = factory.newPullParser()
+            parser.setInput(xml.reader())
+            var eventType = parser.eventType
+            var currentAppId = ""
+            var currentAppName = ""
+            while (eventType != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                when (eventType) {
+                    org.xmlpull.v1.XmlPullParser.START_TAG -> {
+                        if (parser.name == "app") {
+                            currentAppId = parser.getAttributeValue(null, "id") ?: ""
+                            currentAppName = ""
+                        }
+                    }
+                    org.xmlpull.v1.XmlPullParser.TEXT -> {
+                        if (currentAppId.isNotEmpty()) {
+                            currentAppName = parser.text.trim()
+                        }
+                    }
+                    org.xmlpull.v1.XmlPullParser.END_TAG -> {
+                        if (parser.name == "app" && currentAppId.isNotEmpty()) {
+                            apps.add(TvApp(id = currentAppId, name = currentAppName))
+                            currentAppId = ""
+                            currentAppName = ""
+                        }
+                    }
+                }
+                eventType = parser.next()
+            }
+        }.onFailure {
+            Log.w("ConnectionVM", "parseRokuAppsXml: XML parse failed", it)
+        }
+        return apps
     }
 
     fun launchApp(appId: String) {

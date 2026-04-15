@@ -33,7 +33,14 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 "QUERY_APPS_COMPLETED" -> {
-                    if (!remoteViewModel.isLoadingApps.value) {
+                    // APK-faithful: read the decoded XML carried in the intent extra (QUERY_APPS).
+                    // a7/b (QueryAppsBroadcastReceiver) in the reference APK reads the content
+                    // directly from the broadcast instead of making a second HTTP fetch.
+                    val xml = intent.getStringExtra("QUERY_APPS")
+                    if (!xml.isNullOrBlank()) {
+                        remoteViewModel.acceptRokuQueryAppsResult(xml)
+                    } else if (!remoteViewModel.isLoadingApps.value) {
+                        // Fallback: extra missing or empty, re-fetch via HTTP.
                         remoteViewModel.loadInstalledApps()
                     }
                 }
