@@ -240,11 +240,18 @@ Lưu ý: release signing hiện tại có thể chưa được cấu hình sẵn
 
 APK mới sau lần build gần nhất (2026-04-15):
 
-| Variant | Đường dẫn |
-|---|---|
-| Debug (đầy đủ tính năng) | `app/build/outputs/apk/debug/app-debug.apk` |
-| Release unsigned | `app/build/outputs/apk/release/app-release-unsigned.apk` |
-| Release debug-signed | `app/build/outputs/apk/release/app-release-internal-debugsigned.apk` |
+Lần xác nhận gần nhất (PowerShell):
+
+```powershell
+.\gradlew :app:assembleDebug
+BUILD SUCCESSFUL in 1m 37s
+```
+
+| Variant                  | Đường dẫn                                                            |
+| ------------------------ | -------------------------------------------------------------------- |
+| Debug (đầy đủ tính năng) | `app/build/outputs/apk/debug/app-debug.apk`                          |
+| Release unsigned         | `app/build/outputs/apk/release/app-release-unsigned.apk`             |
+| Release debug-signed     | `app/build/outputs/apk/release/app-release-internal-debugsigned.apk` |
 
 > **Ghi chú build release:** `isMinifyEnabled = true`, `isShrinkResources = true`. `ENABLE_INSECURE_DEVICE_PROTOCOLS = false` trong release — các giao thức cleartext (LG, Sony) sẽ bị tắt; chỉ Roku HTTP/WS và Samsung WSS hoạt động đầy đủ.
 

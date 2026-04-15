@@ -287,16 +287,28 @@ class RokuController(
             return true
         }
 
-        val shouldFallbackToWs =
-            httpProbe.responseCode == 401 || httpProbe.responseCode == 403
+        // Trigger WS fallback when:
+        //  a) Roku explicitly rejects the request (401/403) — "Network Access = Disabled" on TV
+        //  b) responseCode is null AND error is not ConnectException — this happens in release
+        //     builds where Android NSC (cleartextTrafficPermitted=false) blocks the HTTP request
+        //     at the OS socket layer before it even reaches Roku, throwing IOException instead
+        //     of returning a 401/403. UniMote APK avoids this by having usesCleartextTraffic=true
+        //     globally, which allows HTTP to go through and receive Roku's real status code.
+        //     Without this fix, the WS fallback is NEVER triggered in release builds.
+        val shouldFallbackToWs = httpProbe.responseCode == 401
+            || httpProbe.responseCode == 403
+            || isHttpOsBlocked(httpProbe)
 
         if (!shouldFallbackToWs) {
             isConnected = false
             failureReason = ROKU_REMOTE_BLOCKED_MESSAGE
             sendRokuNetworkErrorBroadcast()
-            Log.w(TAG, "Roku HTTP probe failed without WS fallback code. code=${httpProbe.responseCode}")
+            Log.w(TAG, "Roku HTTP probe failed without WS fallback code. code=${httpProbe.responseCode} err=${httpProbe.error?.javaClass?.simpleName}")
             return false
         }
+
+        val wsReason = if (httpProbe.responseCode != null) "HTTP ${httpProbe.responseCode}" else "OS cleartext block"
+        Log.w(TAG, "HTTP probe failed ($wsReason), attempting WebSocket fallback for $activeIp")
 
         // Step 2-5: switch to WS fallback on blocked/failed HTTP.
         val wsReady = ensureWebSocketConnectedWithRecovery()
@@ -313,6 +325,25 @@ class RokuController(
         sendRokuNetworkErrorBroadcast()
         Log.e(TAG, "Both HTTP and WebSocket transports failed for Roku at $activeIp")
         return false
+    }
+
+    /**
+     * Returns true when the HTTP call failed NOT because the device is unreachable (ConnectException)
+     * but because Android's Network Security Config blocked the cleartext request at the OS level
+     * (throws IOException with no response code).
+     *
+     * Release builds have cleartextTrafficPermitted=false in network_security_config.xml.
+     * In that case OkHttp never sends the request to Roku — it throws IOException before the
+     * TCP connection is made, so responseCode is null. We still want to try the WebSocket path
+     * because ws:// cleartext is also allowed by the same NSC config (and because Roku's WS
+     * endpoint bypasses the HTTP-level restrictions anyway).
+     */
+    private fun isHttpOsBlocked(result: CommandResult): Boolean {
+        if (result.responseCode != null) return false          // got a real HTTP response
+        val err = result.error ?: return false                 // no error at all
+        if (err is java.net.ConnectException) return false    // device unreachable, WS won't help
+        // IOException without a response code = OS-level block (cleartext NSC, socket policy, etc.)
+        return err is java.io.IOException
     }
 
     private suspend fun executeCommandLocked(command: RokuCommand): CommandResult {
@@ -334,7 +365,12 @@ class RokuController(
             return httpResult
         }
 
-        if (httpResult.responseCode != 401 && httpResult.responseCode != 403) {
+        // Same OS-block detection as connectLocked(): fall through to WS when HTTP is
+        // blocked at the Android NSC layer (IOException, null responseCode, not ConnectException).
+        val httpExplicitlyBlocked = httpResult.responseCode == 401 || httpResult.responseCode == 403
+        val httpOsBlocked = isHttpOsBlocked(httpResult)
+
+        if (!httpExplicitlyBlocked && !httpOsBlocked) {
             isConnected = false
             return CommandResult(
                 success = false,
@@ -343,7 +379,8 @@ class RokuController(
             )
         }
 
-        Log.w(TAG, "HTTP blocked with ${httpResult.responseCode}. Switching to WebSocket fallback")
+        val reason = if (httpExplicitlyBlocked) "HTTP ${httpResult.responseCode}" else "OS cleartext block"
+        Log.w(TAG, "HTTP command blocked ($reason). Switching to WebSocket fallback")
 
         val wsResult = executeWebSocketCommandWithRetry(command)
         if (wsResult.success) {
