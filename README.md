@@ -256,12 +256,12 @@ Luu y:
 - Thu muc app/build bi ignore boi app/.gitignore (/build), nen khong hien tren GitHub.
 - De chia se file APK tren git, du an copy artifact ra thu muc releases/apk.
 
-| Variant                  | Đường dẫn                                                            |
-| ------------------------ | -------------------------------------------------------------------- |
-| Debug (build output local) | `app/build/outputs/apk/debug/app-debug.apk`                        |
-| Debug (tracked tren git) | `releases/apk/app-debug-2026-04-16.apk`                              |
-| Release unsigned         | `app/build/outputs/apk/release/app-release-unsigned.apk`             |
-| Release debug-signed     | `app/build/outputs/apk/release/app-release-internal-debugsigned.apk` |
+| Variant                    | Đường dẫn                                                            |
+| -------------------------- | -------------------------------------------------------------------- |
+| Debug (build output local) | `app/build/outputs/apk/debug/app-debug.apk`                          |
+| Debug (tracked tren git)   | `releases/apk/app-debug-2026-04-16.apk`                              |
+| Release unsigned           | `app/build/outputs/apk/release/app-release-unsigned.apk`             |
+| Release debug-signed       | `app/build/outputs/apk/release/app-release-internal-debugsigned.apk` |
 
 > **Ghi chú build release:** `isMinifyEnabled = true`, `isShrinkResources = true`. `ENABLE_INSECURE_DEVICE_PROTOCOLS = false` trong release — các giao thức cleartext (LG, Sony) sẽ bị tắt; chỉ Roku HTTP/WS và Samsung WSS hoạt động đầy đủ.
 
