@@ -238,18 +238,28 @@ Khi bam Wake TV:
 
 Lưu ý: release signing hiện tại có thể chưa được cấu hình sẵn trong workspace local.
 
-APK mới sau lần build gần nhất (2026-04-15):
+APK moi sau lan build gan nhat (2026-04-16):
 
-Lần xác nhận gần nhất (PowerShell):
+Lan xac nhan gan nhat (PowerShell):
 
 ```powershell
-.\gradlew :app:assembleDebug
-BUILD SUCCESSFUL in 1m 37s
+.\gradlew.bat :app:assembleDebug --no-daemon
+BUILD SUCCESSFUL
 ```
+
+APK da dua len git:
+
+- releases/apk/app-debug-2026-04-16.apk
+
+Luu y:
+
+- Thu muc app/build bi ignore boi app/.gitignore (/build), nen khong hien tren GitHub.
+- De chia se file APK tren git, du an copy artifact ra thu muc releases/apk.
 
 | Variant                  | Đường dẫn                                                            |
 | ------------------------ | -------------------------------------------------------------------- |
-| Debug (đầy đủ tính năng) | `app/build/outputs/apk/debug/app-debug.apk`                          |
+| Debug (build output local) | `app/build/outputs/apk/debug/app-debug.apk`                        |
+| Debug (tracked tren git) | `releases/apk/app-debug-2026-04-16.apk`                              |
 | Release unsigned         | `app/build/outputs/apk/release/app-release-unsigned.apk`             |
 | Release debug-signed     | `app/build/outputs/apk/release/app-release-internal-debugsigned.apk` |
 
