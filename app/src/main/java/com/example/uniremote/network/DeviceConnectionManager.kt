@@ -22,6 +22,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import java.io.IOException
 
 /**
  * Handles the connection lifecycle, protocol initialization, and command dispatching
@@ -36,6 +37,7 @@ class DeviceConnectionManager(
     private val POWER_KEY_GRACE_MS = 2 * 60 * 1000L
     private val CONNECT_TIMEOUT_MS = 10_000L   // raised from 4s — some TVs are slow to respond
     private val SILENT_CONNECT_TIMEOUT_MS = 5_000L  // shorter for background auto-connect
+    private val LG_PIN_CONNECT_TIMEOUT_MS = 300_000L // allow user time to enter 8-digit PIN on TV
     private val CONNECT_VALIDATE_TIMEOUT_MS = 2_500L
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -47,6 +49,10 @@ class DeviceConnectionManager(
 
     private val _pairingState = MutableStateFlow(PairingState.IDLE)
     val pairingState: StateFlow<PairingState> = _pairingState.asStateFlow()
+    // GoogleTV pairing controller — holds ref while PIN dialog is open
+    private var googleTvPairingCtrl: GoogleTvController? = null
+    // LG pairing controller — holds ref while LG PIN dialog is open
+    private var lgPairingCtrl: LgWebOsController? = null
 
     /**
      * True when the active controller is [AndroidTvController] (ADB fallback).
@@ -57,7 +63,6 @@ class DeviceConnectionManager(
     val isAdbFallbackMode: StateFlow<Boolean> = _isAdbFallbackMode.asStateFlow()
 
     private var controller: TvController? = null
-    private var googleTvPairingCtrl: GoogleTvController? = null
     private var autoWakeJob: Job? = null
     private var lastPowerKeyAtMs: Long = 0L
     private var lastPowerKeyDeviceId: String? = null
@@ -91,6 +96,8 @@ class DeviceConnectionManager(
         return runCatching {
             cancelAutoWakeJob()
             controller?.disconnect()
+            googleTvPairingCtrl = null
+            lgPairingCtrl = null
             val factories = controllerFactories(device)
             if (factories.isEmpty()) {
                 Log.w(TAG, "No supported controller candidates for ${device.brand} (${device.name})")
@@ -127,6 +134,9 @@ class DeviceConnectionManager(
             _isAdbFallbackMode.value = false  // reset before each new connection attempt
 
             controller?.disconnect()
+            // Reset stale pairing references so submitPairingPin routes to the active flow only.
+            googleTvPairingCtrl = null
+            lgPairingCtrl = null
 
             var success = false
             var chosenCtrl: TvController? = null
@@ -144,7 +154,12 @@ class DeviceConnectionManager(
 
             for (factory in factories) {
                 val ctrl = factory()
-                success = attemptConnectAndValidate(ctrl, CONNECT_TIMEOUT_MS)
+                val timeoutMs = if (ctrl is LgWebOsController && !device.isPaired) {
+                    LG_PIN_CONNECT_TIMEOUT_MS
+                } else {
+                    CONNECT_TIMEOUT_MS
+                }
+                success = attemptConnectAndValidate(ctrl, timeoutMs)
 
                 if (success) {
                     chosenCtrl = ctrl
@@ -202,20 +217,20 @@ class DeviceConnectionManager(
                 lastPowerKeyAtMs = System.currentTimeMillis()
                 lastPowerKeyDeviceId = activeDevice.id
             }
-            requireController().sendKey(key)
+            requireConnectedController().sendKey(key)
         }
     }
 
     suspend fun sendText(text: String) {
-        withContext(Dispatchers.IO) { requireController().sendText(text) }
+        withContext(Dispatchers.IO) { requireConnectedController().sendText(text) }
     }
 
     suspend fun moveMouse(dx: Float, dy: Float) {
-        withContext(Dispatchers.IO) { requireController().moveMouse(dx, dy) }
+        withContext(Dispatchers.IO) { requireConnectedController().moveMouse(dx, dy) }
     }
 
     suspend fun tapMouse() {
-        withContext(Dispatchers.IO) { requireController().tapMouse() }
+        withContext(Dispatchers.IO) { requireConnectedController().tapMouse() }
     }
 
     suspend fun getInstalledApps(): List<TvApp> {
@@ -277,21 +292,41 @@ class DeviceConnectionManager(
     // ── Google TV Pairing ──────────────────────────────────────────────────────
     suspend fun startGoogleTvPairing(device: TvDevice): Boolean {
         _pairingState.value = PairingState.IDLE
+        lgPairingCtrl = null
         val ctrl = GoogleTvController(
             device = device,
             onPairingState = { state -> _pairingState.value = state }
         )
         googleTvPairingCtrl = ctrl
-        return ctrl.pair()
+        return try {
+            ctrl.pair()
+        } finally {
+            googleTvPairingCtrl = null
+        }
     }
 
     suspend fun submitPairingPin(pin: String) {
+        val activeBrand = _connectedDevice.value?.brand
+        val shouldRouteToLg =
+            activeBrand == TvBrand.LG ||
+                (activeBrand == TvBrand.UNKNOWN && lgPairingCtrl != null && googleTvPairingCtrl == null)
+
+        if (shouldRouteToLg) {
+            lgPairingCtrl?.submitPin(pin)
+            return
+        }
         googleTvPairingCtrl?.submitPin(pin)
+    }
+
+    /** Submits the 8-digit PIN displayed on the LG TV screen. */
+    suspend fun submitLgPin(pin: String) {
+        lgPairingCtrl?.submitPin(pin)
     }
 
     fun cancelPairing() {
         _pairingState.value = PairingState.IDLE
         googleTvPairingCtrl = null
+        lgPairingCtrl = null
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -332,11 +367,18 @@ class DeviceConnectionManager(
                 priority = 100,
                 name = "LgWebOsController",
                 supports = { true },
-                factory = { d -> LgWebOsController(
-                    d,
-                    onTokenReceived = { token -> onTokenReceived?.invoke(token) },
-                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
-                ) }
+                factory = { d ->
+                    LgWebOsController(
+                        device = d,
+                        onTokenReceived = { token -> onTokenReceived?.invoke(token) },
+                        onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) },
+                        // PIN pairing state routed to the global pairingState flow
+                        // so the same GlobalPairingDialog used by GoogleTV/Sony appears
+                        onPairingState = { state ->
+                            _pairingState.value = state
+                        }
+                    ).also { lgPairingCtrl = it }
+                }
             )
         )
 
@@ -476,8 +518,9 @@ class DeviceConnectionManager(
                 factory = { d -> LgWebOsController(
                     d,
                     onTokenReceived = { token -> onTokenReceived?.invoke(token) },
-                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) }
-                ) }
+                    onUnexpectedDisconnect = { reason -> scheduleAutoWake(d, reason) },
+                    onPairingState = { state -> _pairingState.value = state }
+                ).also { lgPairingCtrl = it } }
             ),
             ControllerCandidate(
                 priority = 80,
@@ -525,6 +568,7 @@ class DeviceConnectionManager(
         managerScope.cancel()
         controller?.disconnect()
         googleTvPairingCtrl = null
+        lgPairingCtrl = null
     }
 
     private fun cancelAutoWakeJob() {
@@ -588,6 +632,22 @@ class DeviceConnectionManager(
 
     private fun requireController(): TvController {
         return controller ?: throw IllegalStateException("No active TV connection")
+    }
+
+    private suspend fun requireConnectedController(): TvController {
+        val ctrl = requireController()
+        if (ctrl.isConnected()) return ctrl
+
+        val device = _connectedDevice.value ?: throw IllegalStateException("No active TV connection")
+        Log.w(TAG, "Active controller disconnected for ${device.name}; trying silent reconnect")
+
+        val reconnected = tryConnectSilently(device)
+        if (!reconnected) {
+            _connectionStatus.value = ConnectionStatus.Disconnected
+            throw IOException("Mat ket noi voi ${device.name}. Vui long ket noi lai.")
+        }
+
+        return requireController()
     }
 
     private fun isCompatibilityBlocked(device: TvDevice): Boolean {

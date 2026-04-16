@@ -25,6 +25,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -32,6 +33,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.delay
 import com.example.uniremote.R
 import com.example.uniremote.network.PairingState
 import com.example.uniremote.ui.components.NavigationTab
@@ -49,6 +51,7 @@ fun AppNavigation(
 ) {
     var currentScreen by rememberSaveable { mutableStateOf(NavigationTab.REMOTE) }
     val pairingState by vm.pairingState.collectAsStateWithLifecycle()
+    val connectedDevice by vm.connectedDevice.collectAsStateWithLifecycle()
 
     LaunchedEffect(externalNavigationEvents) {
         externalNavigationEvents?.collect { target ->
@@ -59,6 +62,7 @@ fun AppNavigation(
     // Global PIN dialog — rendered at root level so it appears over ANY tab
     GlobalPairingDialog(
         pairingState = pairingState,
+        connectedDevice = connectedDevice,
         onSubmitPin  = { vm.submitPairingPin(it.uppercase()) },
         onCancel     = { vm.cancelPairing() }
     )
@@ -78,6 +82,7 @@ fun AppNavigation(
 @Composable
 fun GlobalPairingDialog(
     pairingState: PairingState,
+    connectedDevice: com.example.uniremote.data.TvDevice?,
     onSubmitPin: (String) -> Unit,
     onCancel: () -> Unit
 ) {
@@ -86,13 +91,17 @@ fun GlobalPairingDialog(
 
     var pinCode by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(pairingState) {
         if (pairingState == PairingState.CONNECTING) pinCode = ""
-        if (pairingState == PairingState.WAITING_FOR_PIN) {
-            runCatching { focusRequester.requestFocus() }
-        }
     }
+
+    val isLg = connectedDevice?.brand == com.example.uniremote.data.TvBrand.LG
+    val expectedPinLength = if (isLg) 8 else 6
+    // LG PINs can be up to 8 characters, Google TV is 6.
+    val boxWidth = if (expectedPinLength == 8) 32.dp else 44.dp
+    val spacing = if (expectedPinLength == 8) 4.dp else 8.dp
 
     Dialog(
         onDismissRequest = onCancel,
@@ -160,6 +169,12 @@ fun GlobalPairingDialog(
                         strokeWidth = 3.dp
                     )
                 } else {
+                    LaunchedEffect(Unit) {
+                        delay(200) // Give UI a moment to layout
+                        runCatching { focusRequester.requestFocus() }
+                        keyboardController?.show()
+                    }
+
                     // Hidden full-width text field that captures keyboard input
                     BasicTextField(
                         value = pinCode,
@@ -167,7 +182,7 @@ fun GlobalPairingDialog(
                             val filtered = raw
                                 .filter { it.isLetterOrDigit() }
                                 .uppercase()
-                                .take(6)
+                                .take(expectedPinLength)
                             pinCode = filtered
                         },
                         keyboardOptions = KeyboardOptions(
@@ -176,7 +191,7 @@ fun GlobalPairingDialog(
                             imeAction = ImeAction.Done
                         ),
                         keyboardActions = KeyboardActions(
-                            onDone = { if (pinCode.length == 6) onSubmitPin(pinCode) }
+                            onDone = { if (pinCode.length == expectedPinLength) onSubmitPin(pinCode) }
                         ),
                         cursorBrush = SolidColor(Color.Transparent),
                         modifier = Modifier
@@ -185,18 +200,18 @@ fun GlobalPairingDialog(
                         decorationBox = { it() }
                     )
 
-                    // ── 6 OTP boxes ────────────────────────────────────────
+                    // ── Dynamic OTP boxes ──────────────────────────────────
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(spacing),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        repeat(6) { index ->
+                        repeat(expectedPinLength) { index ->
                             val char = pinCode.getOrNull(index)
-                            val isCurrent = index == pinCode.length && pinCode.length < 6
+                            val isCurrent = index == pinCode.length && pinCode.length < expectedPinLength
 
                             Box(
                                 modifier = Modifier
-                                    .size(width = 44.dp, height = 52.dp)
+                                    .size(width = boxWidth, height = 52.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(
                                         if (char != null)
@@ -261,7 +276,7 @@ fun GlobalPairingDialog(
                     if (pairingState == PairingState.WAITING_FOR_PIN) {
                         Button(
                             onClick = { onSubmitPin(pinCode) },
-                            enabled = pinCode.length == 6,
+                            enabled = pinCode.length == expectedPinLength,
                             modifier = Modifier.weight(1f)
                         ) { Text(stringResource(R.string.pairing_confirm)) }
                     }

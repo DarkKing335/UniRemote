@@ -282,6 +282,10 @@ internal class RokuWsSessionHandler(
         pendingCommand = null
 
         val normalizedRequest = normalizeRequest(command.request)
+        // APK evidence (V5/f.e): after authenticate status==200, if pending command type
+        // is 2 (key-down) or 3 (key-up), the type is reset to 1 (key-press) before sending.
+        // This avoids stuck key-down states when the WS connection had to be re-established
+        // mid-sequence (the key-up event that would pair it was lost during handshake).
         if (normalizedRequest == "key-down" || normalizedRequest == "key-up") {
             return command.copy(request = "key-press")
         }

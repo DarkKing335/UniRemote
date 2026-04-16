@@ -122,12 +122,17 @@ class SamsungTvController(
         }
 
         val scheme = if (secureTransport) "wss" else "ws"
+        // Samsung protocol: ?name=<b64> is required for identification.
+        // Additionally, token is passed as &token=<token> for pre-2018 Tizen models
+        // that don't read the Authorization header. Both are sent simultaneously;
+        // newer models prefer the header, older models prefer the query param.
+        val tokenSuffix = if (!liveToken.isNullOrEmpty()) "&token=$liveToken" else ""
         val url = "$scheme://${device.ip}:${device.port}/api/v2/channels/samsung.remote.control" +
-                  "?name=$appNameB64"
+                  "?name=$appNameB64$tokenSuffix"
         val requestBuilder = Request.Builder().url(url)
-        if (!device.token.isNullOrEmpty()) {
-            // Samsung token must never be placed in URL parameters.
-            requestBuilder.addHeader("Authorization", "Bearer ${device.token}")
+        if (!liveToken.isNullOrEmpty()) {
+            // Also send via header for newer Tizen models (≥2018) that prefer it over query param.
+            requestBuilder.addHeader("Authorization", "Bearer $liveToken")
         }
         val request = requestBuilder.build()
         val deferred = CompletableDeferred<Boolean>()

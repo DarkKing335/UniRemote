@@ -17,8 +17,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.xmlpull.v1.XmlPullParserFactory
-import java.net.InetSocketAddress
-import java.net.Socket
 import java.net.ConnectException
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
@@ -238,7 +236,10 @@ class RokuController(
                     }
                     org.xmlpull.v1.XmlPullParser.END_TAG -> {
                         if (parser.name == "app" && appId.isNotEmpty()) {
-                            apps.add(TvApp(id = appId, name = appName))
+                            // Icon URL per APK reverse-engineering (Y6/h.java):
+                            // http://IP:8060/query/icon/{id}
+                            val iconUrl = "http://$activeIp:${device.port}/query/icon/$appId"
+                            apps.add(TvApp(id = appId, name = appName, iconUrl = iconUrl))
                             appId = ""
                         }
                     }
@@ -707,33 +708,6 @@ class RokuController(
             responseCode = lastCode,
             error = lastError
         )
-    }
-
-    private fun canReachEcpPort(host: String, port: Int, timeoutMs: Int = 1200): Boolean {
-        return runCatching {
-            Socket().use { socket ->
-                socket.connect(InetSocketAddress(host, port), timeoutMs)
-                true
-            }
-        }.getOrDefault(false)
-    }
-
-    private suspend fun runGetStatusWithRetry(url: String, attempts: Int): Int {
-        repeat(attempts) { index ->
-            val status = runCatching {
-                val request = Request.Builder().url(url).build()
-                client.newCall(request).execute().use { response ->
-                    response.code
-                }
-            }.getOrDefault(-1)
-
-            if (status != -1) return status
-            if (index < attempts - 1) {
-                val backoffMs = min(800L, (index + 1) * 300L)
-                kotlinx.coroutines.delay(backoffMs)
-            }
-        }
-        return -1
     }
 
     override suspend fun moveMouse(dx: Float, dy: Float) {
